@@ -1,0 +1,1595 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChemSafe · 家庭化学品安全智能助手</title>
+  <link rel="icon" type="image/png" href="assets/image.png">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --bg-soft: #ffffff;
+      --card: #ffffff;
+      --card-ghost: rgba(255,255,255,0.92);
+      --primary: #14b8a6;
+      --primary-dark: #0d9488;
+      --primary-light: #5eead4;
+      --primary-soft: rgba(20,184,166,0.08);
+      --text: #0f172a;
+      --text-main: #334155;
+      --text-dim: #64748b;
+      --text-light: #94a3b8;
+      --border: #e2e8f0;
+      --border-strong: #99f6e4;
+      --red: #ef4444;
+      --red-soft: #fef2f2;
+      --amber: #f59e0b;
+      --amber-soft: #fffbeb;
+      --green: #10b981;
+      --green-soft: #ecfdf5;
+      --shadow: 0 4px 20px rgba(15,23,42,0.06);
+      --shadow-lg: 0 20px 50px rgba(15,23,42,0.1);
+      --radius-sm: 12px;
+      --radius: 16px;
+      --radius-lg: 20px;
+      --radius-xl: 28px;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, sans-serif; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text-main);
+      min-height: 100vh;
+      overflow-x: hidden;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* 柔和背景 */
+    .soft-bg {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none;
+      background:
+        radial-gradient(ellipse 70% 40% at 15% -5%, rgba(147,197,253,0.22), transparent),
+        radial-gradient(ellipse 60% 45% at 85% 105%, rgba(20,184,166,0.1), transparent),
+        var(--bg);
+    }
+    .soft-blob {
+      position: absolute; border-radius: 50%; filter: blur(80px); opacity: 0.38;
+    }
+    .blob-1 { width: 320px; height: 320px; background: #ccfbf1; top: 5%; left: -5%; }
+    .blob-2 { width: 260px; height: 260px; background: #f0fdfa; bottom: 8%; right: -4%; }
+
+    /* ===== 认证页 ===== */
+    #auth-page {
+      min-height: 100vh; position: relative; z-index: 1;
+      display: flex; justify-content: center; align-items: center;
+      padding: 2rem 1rem;
+    }
+    .auth-wrap {
+      display: flex; gap: 3.5rem; align-items: center; max-width: 980px; width: 100%; flex-wrap: wrap; justify-content: center;
+    }
+    .auth-hero { flex: 1; min-width: 300px; max-width: 440px; }
+    .brand {
+      display: inline-flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem;
+      background: var(--card); padding: 0.55rem 1.1rem 0.55rem 0.7rem; border-radius: 999px;
+      box-shadow: var(--shadow);
+    }
+    .brand-mark {
+      width: 44px; height: 44px; border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2rem; color: #fff;
+      overflow: hidden;
+      box-shadow: 0 6px 18px rgba(20,184,166,0.22);
+    }
+    .brand-mark img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .brand-name { font-size: 1.5rem; font-weight: 800; color: var(--text); }
+    .brand-name span { color: var(--primary); }
+    .auth-hero h2 { font-size: 2.6rem; line-height: 1.18; font-weight: 800; margin-bottom: 1rem; color: var(--text); }
+    .auth-hero h2 em { font-style: normal; color: var(--primary-dark); }
+    .auth-hero p { color: var(--text-dim); line-height: 1.8; font-size: 1rem; margin-bottom: 1.6rem; }
+    .hero-tags { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+    .hero-tag {
+      background: var(--card); color: var(--primary-dark);
+      padding: 0.4rem 1rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600;
+      display: flex; align-items: center; gap: 6px;
+      box-shadow: var(--shadow); border: 1px solid var(--border); transition: 0.2s;
+    }
+    .hero-tag:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+
+    .auth-box {
+      flex: 0 1 420px; width: 100%;
+      background: var(--card-ghost);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 2rem 1.8rem;
+      backdrop-filter: blur(16px);
+      box-shadow: var(--shadow-lg);
+    }
+    .auth-tabs {
+      display: flex; background: var(--bg-soft); border-radius: 999px; padding: 4px; margin-bottom: 1.6rem;
+      border: 1px solid var(--border);
+    }
+    .auth-tab {
+      flex: 1; text-align: center; padding: 0.65rem 0; border-radius: 999px; cursor: pointer;
+      font-weight: 700; font-size: 0.9rem; color: var(--text-dim); transition: 0.2s; border: none; background: none;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .auth-tab.active { background: #fff; color: var(--primary-dark); box-shadow: 0 2px 10px rgba(20,184,166,0.12); }
+    .form-group { margin-bottom: 1.1rem; }
+    .form-group label { display: block; font-weight: 600; color: var(--text); font-size: 0.85rem; margin-bottom: 0.35rem; }
+    .input-wrap { position: relative; }
+    .input-wrap i { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--text-light); font-size: 0.92rem; }
+    .form-group input {
+      width: 100%; padding: 0.85rem 1rem 0.85rem 2.7rem;
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm); font-size: 0.95rem; color: var(--text-main);
+      transition: 0.2s;
+    }
+    .form-group input:focus { outline: none; border-color: var(--primary); background: #fff; box-shadow: 0 0 0 4px rgba(20,184,166,0.12); }
+    .form-group input::placeholder { color: var(--text-light); }
+    .btn {
+      width: 100%; padding: 0.9rem; border: none; border-radius: var(--radius-sm);
+      font-size: 1rem; font-weight: 700; cursor: pointer; transition: 0.2s;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: #fff;
+      box-shadow: 0 6px 20px rgba(20,184,166,0.35);
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(20,184,166,0.45); }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .message { padding: 0.75rem 1rem; border-radius: var(--radius-sm); margin-bottom: 1rem; font-size: 0.88rem; display: none; }
+    .message.error { display: block; background: var(--red-soft); color: var(--red); border: 1px solid #fecaca; }
+    .message.success { display: block; background: var(--green-soft); color: var(--green); border: 1px solid #a7f3d0; }
+    .pwd-strength { height: 5px; border-radius: 4px; background: #e2e8f0; margin-top: 0.45rem; overflow: hidden; }
+    .pwd-strength div { height: 100%; width: 0; border-radius: 4px; transition: 0.3s; }
+    .pwd-hint { font-size: 0.76rem; color: var(--text-light); margin-top: 0.35rem; }
+    .loading-spinner {
+      display: inline-block; width: 16px; height: 16px; border: 2px solid #fff; border-radius: 50%;
+      border-top-color: transparent; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ===== 主应用 ===== */
+    #app { display: none; position: relative; z-index: 1; padding: 0 1.5rem 3rem; max-width: 1180px; margin: 0 auto; }
+    .navbar {
+      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;
+      padding: 0.9rem 1.2rem; margin: 1rem 0 1.8rem; gap: 0.8rem;
+      position: sticky; top: 0.8rem; z-index: 50;
+      background: rgba(255,255,255,0.9); backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+    }
+    .logo { font-weight: 800; font-size: 1.25rem; display: flex; align-items: center; gap: 0.6rem; cursor: pointer; color: var(--text); }
+    .logo .brand-mark { width: 36px; height: 36px; font-size: 1rem; }
+    .logo span { color: var(--primary); }
+    .nav-links { display: flex; gap: 0.3rem; flex-wrap: wrap; align-items: center; }
+    .nav-links a {
+      text-decoration: none; font-weight: 600; color: var(--text-dim); font-size: 0.9rem;
+      padding: 0.5rem 0.95rem; border-radius: 999px; transition: 0.2s; cursor: pointer;
+      display: flex; align-items: center; gap: 0.4rem;
+    }
+    .nav-links a:hover { color: var(--primary-dark); background: var(--primary-soft); }
+    .nav-links a.active { color: #fff; background: linear-gradient(135deg, var(--primary), var(--primary-dark)); box-shadow: 0 4px 14px rgba(20,184,166,0.3); }
+    .nav-links a:not([data-page]) { color: var(--primary-dark); background: var(--primary-soft); }
+    .user-info {
+      display: flex; align-items: center; gap: 0.6rem;
+      background: var(--bg-soft); border: 1px solid var(--border);
+      padding: 0.3rem 0.9rem 0.3rem 0.6rem; border-radius: 999px; font-size: 0.85rem; font-weight: 600;
+    }
+    .user-info i.fa-user-circle { color: var(--primary); font-size: 1.25rem; }
+    .logout-btn { background: none; border: none; color: var(--red); cursor: pointer; font-weight: 700; font-size: 0.78rem; padding: 0.2rem 0.5rem; border-radius: 8px; transition: 0.2s; }
+    .logout-btn:hover { background: var(--red-soft); }
+
+    .page-section { display: none; animation: fadeUp 0.35s ease; }
+    .page-section.active { display: block; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+    .section-title {
+      font-size: 1.45rem; font-weight: 800; margin: 0.2rem 0 1rem;
+      display: flex; align-items: center; gap: 12px; color: var(--text);
+    }
+    .section-title i { color: var(--primary); }
+    .tag {
+      background: var(--primary-soft); border: 1px solid var(--border-strong);
+      padding: 0.25rem 0.85rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700;
+      color: var(--primary-dark); display: inline-flex; align-items: center; gap: 5px;
+    }
+    .ai-avatar {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: #fff; border: 1px solid var(--border);
+      padding: 0.35rem 1rem 0.35rem 0.7rem; border-radius: 999px;
+      font-size: 0.85rem; font-weight: 700; color: var(--text);
+      box-shadow: var(--shadow);
+    }
+    .ai-avatar i { font-size: 1.15rem; color: var(--primary); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); }
+    .flex { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
+
+    .glass-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow);
+    }
+
+    /* 首页 */
+    .hero-banner {
+      position: relative; border-radius: var(--radius-lg); overflow: hidden;
+      background: linear-gradient(120deg, #fff 0%, #f0fdfa 100%);
+      border: 1px solid var(--border);
+      padding: 2.4rem 2rem; margin-bottom: 1.5rem;
+      box-shadow: var(--shadow);
+    }
+    .hero-banner h1 { font-size: 1.95rem; font-weight: 800; margin-bottom: 0.6rem; color: var(--text); }
+    .hero-banner h1 em { font-style: normal; color: var(--primary-dark); }
+    .hero-banner p { color: var(--text-dim); max-width: 560px; line-height: 1.8; font-size: 0.95rem; }
+    .hero-flask {
+      position: absolute; right: 2rem; top: 50%; transform: translateY(-50%);
+      font-size: 5.5rem; color: rgba(20,184,166,0.1); pointer-events: none;
+    }
+    .carousel {
+      margin: 0 0 1.5rem; border-radius: var(--radius); padding: 1rem 1.4rem;
+      background: var(--red-soft); border: 1px solid #fecaca;
+      display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+    }
+    .carousel-text { font-size: 0.98rem; font-weight: 700; color: #991b1b; flex: 1; min-width: 240px; display: flex; align-items: center; gap: 10px; }
+    .carousel-text i { color: var(--red); font-size: 1.2rem; }
+    .carousel-indicators { display: flex; gap: 8px; }
+    .dot { width: 8px; height: 8px; background: #fecaca; border-radius: 20px; transition: 0.25s; cursor: pointer; }
+    .dot.active { background: var(--red); width: 24px; }
+
+    .quick-entry { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+    .quick-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 1.3rem 1.1rem; cursor: pointer; transition: 0.25s;
+      display: flex; align-items: center; gap: 0.9rem;
+      box-shadow: var(--shadow);
+    }
+    .quick-card:hover { border-color: var(--border-strong); transform: translateY(-4px); box-shadow: var(--shadow-lg); }
+    .quick-card:active { transform: scale(0.98); }
+    .quick-icon {
+      width: 48px; height: 48px; border-radius: 14px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 1.25rem;
+    }
+    .quick-card h4 { font-size: 0.98rem; margin-bottom: 0.15rem; color: var(--text); }
+    .quick-card p { font-size: 0.76rem; color: var(--text-dim); }
+    .qc-cyan { background: #f0fdfa; color: var(--primary-dark); }
+    .qc-teal { background: #f0fdf4; color: #15803d; }
+    .qc-amber { background: #fffbeb; color: #b45309; }
+    .qc-green { background: #f0fdfa; color: var(--primary-dark); }
+
+    .ai-panel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin: 1.2rem 0; }
+    .ai-stat {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 1.2rem 1rem; text-align: center; box-shadow: var(--shadow);
+      transition: 0.2s;
+    }
+    .ai-stat:hover { transform: translateY(-3px); border-color: var(--border-strong); }
+    .ai-stat .num { font-size: 1.7rem; font-weight: 800; color: var(--primary-dark); }
+    .ai-stat .label { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.2rem; }
+    .daily-tip {
+      margin-top: 1rem; border-radius: var(--radius); padding: 1rem 1.4rem;
+      background: var(--amber-soft); border: 1px solid #fde68a;
+      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.6rem;
+      color: #92400e; font-size: 0.9rem; font-weight: 600;
+    }
+
+    /* AI识别 */
+    .upload-area {
+      border: 2px dashed var(--border-strong); border-radius: var(--radius-lg); padding: 2.2rem 1.5rem;
+      text-align: center; margin: 1rem 0 1.5rem; transition: 0.2s; background: var(--primary-soft);
+    }
+    .upload-area:hover { border-color: var(--primary); background: rgba(20,184,166,0.1); }
+    .upload-area > i { font-size: 3rem; color: var(--primary); margin-bottom: 0.6rem; }
+    .upload-area p { color: var(--text-dim); }
+    .upload-btn {
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: #fff;
+      border: none; border-radius: 999px; padding: 0.7rem 2rem; font-size: 0.95rem; font-weight: 700;
+      margin: 0.8rem 0.3rem 0; cursor: pointer; transition: 0.15s;
+      box-shadow: 0 6px 18px rgba(20,184,166,0.3);
+    }
+    .upload-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(20,184,166,0.4); }
+    .upload-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    #file-input { display: none; }
+    .image-preview { max-width: 220px; max-height: 220px; border-radius: var(--radius); margin: 0.8rem auto 0; display: none; box-shadow: var(--shadow); border: 1px solid var(--border); }
+
+    .result-box {
+      border-radius: var(--radius); padding: 1.3rem 1.5rem; margin: 1rem 0;
+      background: #fff; border: 1px solid var(--border);
+      border-left: 4px solid var(--primary); box-shadow: var(--shadow);
+    }
+    .confidence-bar { height: 7px; background: #e2e8f0; border-radius: 10px; margin: 0.5rem 0 0.2rem; overflow: hidden; }
+    .confidence-fill { height: 100%; border-radius: 10px; width: 0%; background: linear-gradient(90deg, var(--primary), var(--primary-light)); transition: width 1.2s ease; }
+    .badge { border-radius: 999px; padding: 0.2rem 0.8rem; font-size: 0.72rem; font-weight: 700; margin-left: 6px; }
+    .badge.green { background: var(--green-soft); color: var(--green); border: 1px solid #a7f3d0; }
+    .badge.red { background: var(--red-soft); color: var(--red); border: 1px solid #fecaca; }
+    .badge.yellow { background: var(--amber-soft); color: #b45309; border: 1px solid #fde68a; }
+    .tip-box { margin-top: 10px; background: var(--primary-soft); border: 1px solid var(--border-strong); padding: 0.8rem 1rem; border-radius: var(--radius-sm); font-size: 0.92rem; color: var(--text); }
+    .evidence-box { font-size: 0.8rem; color: var(--text-dim); margin-top: 8px; background: var(--bg-soft); padding: 0.45rem 1rem; border-radius: 999px; display: inline-block; }
+    .thinking {
+      display: inline-flex; align-items: center; gap: 12px; padding: 0.7rem 1.2rem;
+      background: #fff; border: 1px solid var(--border); border-radius: 999px;
+      color: var(--primary-dark); font-weight: 700; margin: 0.6rem 0; box-shadow: var(--shadow);
+    }
+    .thinking i { font-size: 1.2rem; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 0.5; transform: scale(0.95); } 50% { opacity: 1; transform: scale(1.08); } }
+    .voice-btn {
+      background: #fff; color: var(--primary-dark); border: 1px solid var(--border-strong);
+      border-radius: 999px; padding: 0.45rem 1.2rem; font-size: 0.85rem; font-weight: 700;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: 0.2s;
+      box-shadow: var(--shadow);
+    }
+    .voice-btn:hover { background: var(--primary-soft); }
+
+    /* 辟谣 */
+    .rumor-input-area { border-radius: var(--radius); padding: 1.4rem; margin: 0.5rem 0 1.4rem; background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow); }
+    .rumor-input-area textarea {
+      width: 100%; padding: 0.9rem 1.2rem; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      font-size: 0.95rem; resize: vertical; background: var(--bg-soft); color: var(--text-main); margin-top: 0.8rem;
+    }
+    .rumor-input-area textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(20,184,166,0.1); }
+    .rumor-input-area button.analyze {
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark)); border: none; color: #fff;
+      padding: 0.7rem 2.2rem; border-radius: 999px; font-weight: 700; margin-top: 0.8rem; cursor: pointer; transition: 0.15s;
+      box-shadow: 0 6px 18px rgba(20,184,166,0.3);
+    }
+    .rumor-input-area button.analyze:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(20,184,166,0.4); }
+    .rumor-input-area button.analyze:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    .rumor-list { display: flex; flex-direction: column; gap: 0.9rem; margin: 1.2rem 0; }
+    .rumor-item {
+      background: #fff; border: 1px solid var(--border); border-left: 4px solid var(--primary);
+      border-radius: var(--radius); padding: 1rem 1.3rem; cursor: pointer; transition: 0.2s;
+      box-shadow: var(--shadow);
+    }
+    .rumor-item:hover { transform: translateX(4px); border-color: var(--border-strong); }
+    .rumor-item .title { font-weight: 800; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--text); }
+    .rumor-item .title i { color: var(--red); }
+    .rumor-item .explain { margin-top: 0.5rem; color: var(--text-dim); font-size: 0.9rem; line-height: 1.7; }
+    .rumor-verdict { margin-top: 1rem; border-radius: var(--radius); padding: 1.1rem 1.3rem; background: var(--primary-soft); border: 1px solid var(--border-strong); display: none; }
+
+    /* 混合禁忌 */
+    .mix-area { border-radius: var(--radius); padding: 1.4rem; margin: 0.5rem 0 1.4rem; background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow); }
+    .mix-select-row { display: flex; gap: 0.8rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.8rem; }
+    .mix-select-row input {
+      flex: 1; min-width: 170px; padding: 0.85rem 1.1rem; border-radius: var(--radius-sm);
+      border: 1px solid var(--border); background: var(--bg-soft); color: var(--text-main);
+      font-size: 0.95rem; transition: 0.2s;
+    }
+    .mix-select-row input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(20,184,166,0.1); }
+    .mix-plus { font-size: 1.3rem; color: var(--primary); font-weight: 800; }
+    .mix-result { margin-top: 0.6rem; border-radius: var(--radius); padding: 1.1rem 1.4rem; display: none; }
+    .mix-input-hint { font-size: 0.8rem; color: var(--text-light); margin-top: -0.3rem; margin-bottom: 0.8rem; }
+    .mix-result.critical { display: block; background: var(--red-soft); border: 1px solid #fecaca; }
+    .mix-result.warning { display: block; background: var(--amber-soft); border: 1px solid #fde68a; }
+    .mix-result.info { display: block; background: var(--primary-soft); border: 1px solid var(--border-strong); }
+    .mix-result.safe { display: block; background: var(--green-soft); border: 1px solid #a7f3d0; }
+
+    /* 科普 */
+    .search-box { display: flex; gap: 0.7rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
+    .search-box input {
+      flex: 1; min-width: 180px; padding: 0.75rem 1.2rem; border-radius: 999px;
+      border: 1px solid var(--border); background: #fff; color: var(--text-main); font-size: 0.95rem; transition: 0.2s;
+      box-shadow: var(--shadow);
+    }
+    .search-box input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(20,184,166,0.1); }
+    .search-box button {
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: #fff; border: none;
+      padding: 0.7rem 1.8rem; border-radius: 999px; font-weight: 700; cursor: pointer; transition: 0.15s;
+      box-shadow: 0 6px 18px rgba(20,184,166,0.3);
+    }
+    .search-box button:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(20,184,166,0.4); }
+    .search-box button.ghost { background: #fff; color: var(--text-dim); border: 1px solid var(--border); box-shadow: var(--shadow); }
+    .safety-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.1rem; margin-top: 0.6rem; }
+    .safety-card {
+      background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 1.3rem 1.4rem; transition: 0.25s; cursor: pointer;
+      box-shadow: var(--shadow);
+    }
+    .safety-card:hover { transform: translateY(-4px); border-color: var(--border-strong); box-shadow: var(--shadow-lg); }
+    .safety-card h4 { margin-bottom: 0.7rem; display: flex; align-items: center; gap: 10px; font-size: 1.05rem; color: var(--text); }
+    .safety-card h4 i { color: var(--primary); }
+    .safety-card .sub { font-size: 0.86rem; color: var(--text-dim); padding: 0.25rem 0; display: flex; align-items: flex-start; gap: 8px; line-height: 1.6; }
+    .safety-card .sub i { width: 1.1rem; margin-top: 0.15rem; }
+    .recommend-box { margin: 1.3rem 0; border-radius: var(--radius); padding: 1rem 1.4rem; background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow); }
+    .recommend-box .tag { cursor: pointer; transition: 0.15s; margin: 0.15rem; }
+    .recommend-box .tag:hover { background: var(--primary-soft); transform: scale(1.05); }
+
+    /* 历史 */
+    .history-list { margin-top: 1.2rem; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1rem 1.3rem; box-shadow: var(--shadow); }
+    .history-item { padding: 0.55rem 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; font-size: 0.87rem; gap: 1rem; }
+    .history-item:last-child { border-bottom: none; }
+    .clear-history-btn {
+      background: none; border: 1px solid #fecaca; color: var(--red);
+      font-size: 0.72rem; padding: 0.2rem 0.7rem; border-radius: 999px; cursor: pointer; float: right; transition: 0.15s; font-weight: 700;
+    }
+    .clear-history-btn:hover { background: var(--red-soft); }
+
+    /* 弹窗 */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55); backdrop-filter: blur(6px); display: none; justify-content: center; align-items: center; z-index: 999; padding: 1rem; }
+    .modal-overlay.show { display: flex; }
+    .modal-box {
+      background: #fff; border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
+      padding: 1.8rem 2rem; max-width: 520px; width: 100%; max-height: 82vh; overflow-y: auto;
+      box-shadow: var(--shadow-lg); animation: fadeUp 0.25s ease;
+    }
+    .modal-box h3 { margin-bottom: 0.8rem; display: flex; align-items: center; gap: 10px; color: var(--text); }
+    .modal-box h3 i { color: var(--primary); }
+    .modal-close { float: right; cursor: pointer; color: var(--text-light); font-size: 1.2rem; background: none; border: none; transition: 0.2s; }
+    .modal-close:hover { color: var(--red); }
+    .modal-chem-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
+    .modal-chem-item {
+      background: var(--primary-soft); border: 1px solid var(--border-strong); color: var(--primary-dark);
+      padding: 0.35rem 1rem; border-radius: 999px; font-size: 0.85rem; cursor: pointer; transition: 0.15s; font-weight: 600;
+    }
+    .modal-chem-item:hover { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: #fff; }
+
+    /* ===== 小安 AI 悬浮窗 ===== */
+    .chat-fab {
+      position: fixed; right: 1.5rem; bottom: 1.5rem; z-index: 200;
+      width: 58px; height: 58px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: #fff; border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.45rem; box-shadow: 0 10px 28px rgba(20,184,166,0.42);
+      transition: 0.25s;
+    }
+    .chat-fab:hover { transform: scale(1.08); }
+    .chat-fab.pulse { animation: fabPulse 2s infinite; }
+    @keyframes fabPulse { 0%, 100% { box-shadow: 0 10px 28px rgba(20,184,166,0.42); } 50% { box-shadow: 0 10px 38px rgba(20,184,166,0.65); } }
+
+    .chat-panel {
+      position: fixed; right: 1.5rem; bottom: 5.5rem; z-index: 200;
+      width: 380px; max-width: calc(100vw - 2rem); height: 520px; max-height: calc(100vh - 8rem);
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg); display: none; flex-direction: column; overflow: hidden;
+      animation: chatPop 0.25s ease;
+    }
+    .chat-panel.open { display: flex; }
+    @keyframes chatPop { from { opacity: 0; transform: translateY(20px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }
+    .chat-header {
+      padding: 1rem 1.2rem; background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: #fff; display: flex; align-items: center; justify-content: space-between;
+    }
+    .chat-header-left { display: flex; align-items: center; gap: 0.7rem; }
+    .chat-avatar {
+      width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,0.25);
+      display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
+    }
+    .chat-title { font-weight: 800; font-size: 0.95rem; }
+    .chat-subtitle { font-size: 0.72rem; opacity: 0.9; }
+    .chat-close { background: none; border: none; color: #fff; font-size: 1.1rem; cursor: pointer; padding: 0.3rem; border-radius: 8px; transition: 0.2s; }
+    .chat-close:hover { background: rgba(255,255,255,0.2); }
+    .chat-body {
+      flex: 1; overflow-y: auto; padding: 1rem; background: var(--bg-soft);
+      display: flex; flex-direction: column; gap: 0.8rem;
+    }
+    .chat-msg { display: flex; gap: 0.6rem; max-width: 88%; animation: fadeUp 0.2s ease; }
+    .chat-msg.user { align-self: flex-end; flex-direction: row-reverse; }
+    .chat-msg.bot { align-self: flex-start; }
+    .chat-msg-bubble {
+      padding: 0.7rem 1rem; border-radius: 18px; font-size: 0.9rem; line-height: 1.6;
+      word-break: break-word;
+    }
+    .chat-msg.user .chat-msg-bubble { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: #fff; border-bottom-right-radius: 6px; }
+    .chat-msg.bot .chat-msg-bubble { background: var(--bg-soft); color: var(--text-main); border: 1px solid var(--border); border-bottom-left-radius: 6px; }
+    .chat-msg-avatar {
+      width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 0.8rem;
+    }
+    .chat-msg.user .chat-msg-avatar { background: var(--primary-soft); color: var(--primary-dark); }
+    .chat-msg.bot .chat-msg-avatar { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: #fff; }
+    .chat-quick-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.3rem; }
+    .chat-quick-tags button {
+      background: var(--primary-soft); border: 1px solid var(--border-strong); color: var(--primary-dark);
+      border-radius: 999px; padding: 0.25rem 0.7rem; font-size: 0.72rem; cursor: pointer; transition: 0.15s; font-weight: 600;
+    }
+    .chat-quick-tags button:hover { background: var(--primary); color: #fff; }
+    .chat-input-area {
+      padding: 0.8rem 1rem; background: #fff; border-top: 1px solid var(--border);
+      display: flex; gap: 0.6rem; align-items: center;
+    }
+    .chat-input {
+      flex: 1; border: 1px solid var(--border); border-radius: 999px; padding: 0.65rem 1rem;
+      font-size: 0.9rem; color: var(--text-main); background: var(--bg-soft); outline: none;
+    }
+    .chat-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(20,184,166,0.1); }
+    .chat-send {
+      width: 40px; height: 40px; border-radius: 50%; border: none; background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s;
+    }
+    .chat-send:hover { transform: scale(1.08); }
+    .chat-send:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    footer { text-align: center; font-size: 0.78rem; color: var(--text-light); padding: 1.2rem 0; }
+
+    @media (max-width: 900px) {
+      .quick-entry { grid-template-columns: repeat(2, 1fr); }
+      .ai-panel { grid-template-columns: repeat(2, 1fr); }
+      .safety-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 720px) {
+      .auth-hero { text-align: center; }
+      .hero-tags { justify-content: center; }
+      .navbar { justify-content: center; top: 0.5rem; }
+      .nav-links { justify-content: center; }
+      .hero-banner h1 { font-size: 1.5rem; }
+      .hero-flask { display: none; }
+      .chat-panel { right: 0.75rem; bottom: 5rem; width: calc(100vw - 1.5rem); }
+      .mix-select-row { flex-direction: column; align-items: stretch; }
+      .mix-plus { align-self: center; }
+      .auth-hero h2 { font-size: 2rem; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="soft-bg">
+  <div class="soft-blob blob-1"></div>
+  <div class="soft-blob blob-2"></div>
+</div>
+
+<!-- 认证页 -->
+<div id="auth-page">
+  <div class="auth-wrap">
+    <div class="auth-hero">
+        <div class="brand">
+        <div class="brand-mark"><img src="assets/image.png" alt="ChemSafe"></div>
+        <div class="brand-name">Chem<span>Safe</span></div>
+      </div>
+      <h2>让每一次<br><em>化学品使用</em><br>都有 AI 守护</h2>
+      <p>面向家庭场景的化学品安全智能助手：图像识别、混用禁忌预警、谣言鉴别与安全科普，一站式降低日常化学风险。</p>
+
+    </div>
+
+    <div class="auth-box">
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tab-login"><i class="fas fa-sign-in-alt"></i> 登 录</button>
+        <button class="auth-tab" id="tab-register"><i class="fas fa-user-plus"></i> 注 册</button>
+      </div>
+
+      <div id="message-box" class="message"></div>
+
+      <form id="login-form">
+        <div class="form-group">
+          <label>昵称</label>
+          <div class="input-wrap">
+            <i class="fas fa-user"></i>
+            <input type="text" id="login-username" placeholder="请输入昵称" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>密码</label>
+          <div class="input-wrap">
+            <i class="fas fa-lock"></i>
+            <input type="password" id="login-password" placeholder="至少6位" required minlength="6">
+          </div>
+        </div>
+        <button type="submit" class="btn" id="login-btn"><i class="fas fa-sign-in-alt"></i> 进入安全助手</button>
+      </form>
+
+      <form id="register-form" style="display:none;">
+        <div class="form-group">
+          <label>昵称（唯一，注册后不可重复）</label>
+          <div class="input-wrap">
+            <i class="fas fa-user"></i>
+            <input type="text" id="reg-username" placeholder="2-16个字符" required minlength="2" maxlength="16">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>密码</label>
+          <div class="input-wrap">
+            <i class="fas fa-lock"></i>
+            <input type="password" id="reg-password" placeholder="至少6位" required minlength="6">
+          </div>
+          <div class="pwd-strength"><div id="pwd-bar"></div></div>
+          <div class="pwd-hint" id="pwd-hint">建议使用字母+数字组合</div>
+        </div>
+        <div class="form-group">
+          <label>确认密码</label>
+          <div class="input-wrap">
+            <i class="fas fa-lock"></i>
+            <input type="password" id="reg-password2" placeholder="再次输入密码" required minlength="6">
+          </div>
+        </div>
+        <button type="submit" class="btn" id="register-btn"><i class="fas fa-user-plus"></i> 创建账号</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- 主应用 -->
+<div id="app">
+  <nav class="navbar">
+    <div class="logo" onclick="navTo('home')">
+      <div class="brand-mark"><img src="assets/image.png" alt="ChemSafe"></div>
+      Chem<span>Safe</span>
+    </div>
+    <div class="nav-links">
+      <a href="javascript:void(0)" data-page="home" onclick="navTo('home')"><i class="fas fa-home"></i> 首页</a>
+      <a href="javascript:void(0)" data-page="ai" onclick="navTo('ai')"><i class="fas fa-camera"></i> AI鉴别</a>
+      <a href="javascript:void(0)" data-page="mix" onclick="navTo('mix')"><i class="fas fa-flask"></i> 混用禁忌</a>
+      <a href="javascript:void(0)" data-page="rumor" onclick="navTo('rumor')"><i class="fas fa-comment-slash"></i> 谣言鉴别</a>
+      <a href="javascript:void(0)" data-page="safety" onclick="navTo('safety')"><i class="fas fa-book-open"></i> 安全科普</a>
+      <a href="javascript:void(0)" onclick="toggleChat(); return false;"><i class="fas fa-robot"></i> 小安</a>
+      <div class="user-info">
+        <i class="fas fa-user-circle"></i>
+        <span id="username-display">用户</span>
+        <button class="logout-btn" id="logout-btn"><i class="fas fa-sign-out-alt"></i> 退出</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- 首页 -->
+  <section id="page-home" class="page-section active">
+    <div class="hero-banner">
+      <img src="assets/image.png" alt="" class="hero-flask" style="opacity:0.08;">
+      <h1>家庭化学品安全<br><em>智能守护平台</em></h1>
+      <p>基于多模态 AI 的化学品识别与风险预警系统，帮助每个家庭避开清洁剂混用中毒、误食、误存等常见化学伤害。</p>
+      <div class="flex" style="margin-top:1rem;">
+        <span class="ai-avatar"><span class="status-dot"></span> 小安 · AI 安全助手在线</span>
+        <span class="tag"><i class="fas fa-microchip"></i> 模型准确率 <span id="accuracy-display">87.3</span>%</span>
+      </div>
+    </div>
+
+    <div class="carousel">
+      <div class="carousel-text" id="carousel-text"><i class="fas fa-exclamation-triangle"></i> 漂白剂与洁厕灵混用会产生氯气！</div>
+      <div class="carousel-indicators">
+        <span class="dot active" data-index="0"></span>
+        <span class="dot" data-index="1"></span>
+        <span class="dot" data-index="2"></span>
+      </div>
+    </div>
+
+    <div class="quick-entry">
+      <div class="quick-card" onclick="navTo('ai')">
+        <div class="quick-icon qc-cyan"><i class="fas fa-camera"></i></div>
+        <div><h4>AI 鉴别</h4><p>拍照识别化学品</p></div>
+      </div>
+      <div class="quick-card" onclick="navTo('mix')">
+        <div class="quick-icon qc-teal"><i class="fas fa-flask"></i></div>
+        <div><h4>混用禁忌</h4><p>查询能否安全混用</p></div>
+      </div>
+      <div class="quick-card" onclick="navTo('rumor')">
+        <div class="quick-icon qc-amber"><i class="fas fa-comment-slash"></i></div>
+        <div><h4>谣言鉴别</h4><p>网传说法一键求证</p></div>
+      </div>
+      <div class="quick-card" onclick="navTo('safety')">
+        <div class="quick-icon qc-cyan"><i class="fas fa-book-open"></i></div>
+        <div><h4>安全科普</h4><p>化学品知识库</p></div>
+      </div>
+    </div>
+
+    <div class="ai-panel">
+      <div class="ai-stat"><div class="num" id="stat-images">1,247</div><div class="label">识别次数</div></div>
+      <div class="ai-stat"><div class="num" id="stat-rumors">836</div><div class="label">辟谣次数</div></div>
+      <div class="ai-stat"><div class="num" id="stat-chemicals">16</div><div class="label">收录化学品</div></div>
+      <div class="ai-stat"><div class="num" id="stat-satisfaction">92.4%</div><div class="label">用户满意度</div></div>
+    </div>
+
+    <div class="daily-tip">
+      <span><i class="fas fa-lightbulb" style="color:var(--amber);"></i> 今日提醒：夏季高温，防晒喷雾勿放车内</span>
+      <span class="tag" style="cursor:pointer;" onclick="toggleChat()"><i class="fas fa-robot"></i> 有疑问？问小安</span>
+    </div>
+  </section>
+
+  <!-- AI鉴别 -->
+  <section id="page-ai" class="page-section">
+    <h2 class="section-title"><i class="fas fa-camera"></i> AI 化学品鉴别 <span class="tag">多模态识别</span></h2>
+    <div class="flex">
+      <span class="ai-avatar"><i class="fas fa-robot"></i> 小安 · 计算机视觉</span>
+      <span style="font-size:0.8rem; color:var(--text-dim);"><i class="fas fa-microphone"></i> 支持语音描述</span>
+    </div>
+
+    <div class="upload-area">
+      <i class="fas fa-cloud-upload-alt"></i>
+      <p style="font-weight:700; color:var(--text); margin-bottom:0.3rem;">上传化学品照片，AI 自动识别并给出安全提示</p>
+      <p style="font-size:0.85rem;">支持清洁剂、消毒液、护肤品、日用品等常见化学品</p>
+      <button class="upload-btn" id="upload-trigger"><i class="fas fa-image"></i> 选择图片</button>
+      <button class="voice-btn" id="voice-trigger-ai"><i class="fas fa-microphone"></i> 语音描述</button>
+      <input type="file" id="file-input" accept="image/*">
+      <div id="file-name" style="margin-top:0.5rem;color:var(--text-dim);font-size:0.85rem;">未选择文件</div>
+      <img id="image-preview" class="image-preview" alt="预览">
+    </div>
+
+    <div id="ai-thinking" style="display:none;" class="thinking"><i class="fas fa-brain"></i> 正在分析图像特征 ...</div>
+
+    <div id="ai-result" class="result-box" style="display:none;">
+      <div class="flex" style="justify-content:space-between;">
+        <div style="display:flex; align-items:center; gap:8px;"><i class="fas fa-check-circle" style="color:var(--green);font-size:1.5rem;"></i> <strong id="ai-name" style="font-size:1.1rem; color:var(--text);">洗洁精</strong> <span class="tag" style="margin-left:4px;" id="ai-category-tag">清洁剂</span></div>
+        <span class="badge green" id="ai-safety-badge">安全</span>
+      </div>
+      <div style="margin:0.5rem 0 0.2rem; display:flex; gap:14px; flex-wrap:wrap; font-size:0.9rem; color:var(--text-dim);">
+        <span><i class="fas fa-flask"></i> 类别: <span id="ai-category">清洁剂</span></span>
+        <span><i class="fas fa-chart-line"></i> 置信度: <span id="ai-confidence-text">94.7%</span></span>
+      </div>
+      <div class="confidence-bar"><div class="confidence-fill" id="ai-confidence-fill" style="width:0%;"></div></div>
+      <p id="ai-tip" class="tip-box"></p>
+      <div class="evidence-box"><i class="fas fa-robot"></i> 推理依据：基于上传内容特征匹配化学品库</div>
+      <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <button class="voice-btn" style="color:var(--green);border-color:#a7f3d0;" id="feedback-good"><i class="fas fa-thumbs-up"></i> 识别准确</button>
+        <button class="voice-btn" style="color:var(--red);border-color:#fecaca;" id="feedback-bad"><i class="fas fa-thumbs-down"></i> 识别有误</button>
+        <span style="font-size:0.75rem; color:var(--text-light);"><i class="fas fa-heart"></i> 反馈将帮助模型迭代</span>
+      </div>
+    </div>
+
+    <div class="history-list">
+      <h4 style="margin-bottom:0.5rem; color:var(--text);"><i class="fas fa-history" style="color:var(--primary);"></i> 我的鉴别记录
+        <button class="clear-history-btn" onclick="clearHistory('ai')">清除</button>
+      </h4>
+      <div id="ai-history-container"><div class="history-item"><span style="color:var(--text-light);">暂无记录</span></div></div>
+    </div>
+  </section>
+
+  <!-- 混用禁忌 -->
+  <section id="page-mix" class="page-section">
+    <h2 class="section-title"><i class="fas fa-flask"></i> 混用禁忌查询 <span class="tag">安全核心</span></h2>
+    <div class="flex" style="margin-bottom: 0.5rem;">
+      <span class="ai-avatar"><i class="fas fa-robot"></i> 小安 · 禁忌分析</span>
+      <span style="font-size:0.8rem; color:var(--red); font-weight:700;"><i class="fas fa-exclamation-triangle"></i> 错误混用可能致命</span>
+    </div>
+
+    <div class="mix-area">
+      <p style="margin-bottom:0.9rem; color:var(--text-dim);"><i class="fas fa-info-circle" style="color:var(--primary);"></i> 输入两种化学品名称，查询能否安全混用（支持别名）</p>
+      <div class="mix-select-row">
+        <input type="text" id="mix-input-a" placeholder="例如：84消毒液" autocomplete="off">
+        <span class="mix-plus"><i class="fas fa-plus"></i></span>
+        <input type="text" id="mix-input-b" placeholder="例如：洁厕灵" autocomplete="off">
+        <button class="upload-btn" style="margin:0;" id="mix-check-btn"><i class="fas fa-search"></i> 查询</button>
+      </div>
+      <p class="mix-input-hint" id="mix-input-hint">已收录常见化学品，支持别名识别。输入后按回车也可查询。</p>
+      <div id="mix-result" class="mix-result"></div>
+    </div>
+
+    <h3 class="section-title" style="font-size:1.15rem;"><i class="fas fa-skull-crossbones"></i> 已知危险组合</h3>
+    <div class="rumor-list" id="mix-known-list"></div>
+
+    <div class="history-list">
+      <h4 style="margin-bottom:0.5rem; color:var(--text);"><i class="fas fa-history" style="color:var(--primary);"></i> 我的查询记录
+        <button class="clear-history-btn" onclick="clearHistory('mix')">清除</button>
+      </h4>
+      <div id="mix-history-container"><div class="history-item"><span style="color:var(--text-light);">暂无记录</span></div></div>
+    </div>
+  </section>
+
+  <!-- 辟谣 -->
+  <section id="page-rumor" class="page-section">
+    <h2 class="section-title"><i class="fas fa-comment-slash"></i> 谣言鉴别 <span class="tag">NLP 语义分析</span></h2>
+    <div class="rumor-input-area">
+      <div class="flex" style="justify-content:space-between;">
+        <span class="ai-avatar"><i class="fas fa-robot"></i> 小安 · 语义分析</span>
+        <button class="voice-btn" id="voice-trigger-rumor"><i class="fas fa-microphone"></i> 语音输入</button>
+      </div>
+      <textarea rows="2" id="rumor-input" placeholder="粘贴或输入网传说法，例如：84和酒精混合消毒效果更好……">洗洁精加热有毒</textarea>
+      <button class="analyze" id="rumor-check-btn"><i class="fas fa-robot"></i> 智能鉴别</button>
+      <div id="rumor-thinking" style="display:none;" class="thinking"><i class="fas fa-brain"></i> 正在进行语义分析 ...</div>
+      <div id="rumor-result" class="rumor-verdict"></div>
+    </div>
+
+    <h3 class="section-title" style="font-size:1.15rem;"><i class="fas fa-list-ul"></i> 热门谣言 · 点击快速求证</h3>
+    <div class="rumor-list" id="rumor-list-container"></div>
+
+    <div class="history-list">
+      <h4 style="margin-bottom:0.5rem; color:var(--text);"><i class="fas fa-history" style="color:var(--primary);"></i> 我的鉴别记录
+        <button class="clear-history-btn" onclick="clearHistory('rumor')">清除</button>
+      </h4>
+      <div id="rumor-history-container"><div class="history-item"><span style="color:var(--text-light);">暂无记录</span></div></div>
+    </div>
+  </section>
+
+  <!-- 科普 -->
+  <section id="page-safety" class="page-section">
+    <h2 class="section-title"><i class="fas fa-book-open"></i> 安全科普 <span class="tag">知识图谱</span></h2>
+    <div class="flex" style="margin-bottom: 0.5rem;">
+      <span class="ai-avatar"><i class="fas fa-robot"></i> 小安 · 知识库</span>
+      <span style="font-size:0.85rem; color:var(--text-dim);"><i class="fas fa-database"></i> 已收录 <span id="chemical-count">16</span> 种化学品</span>
+    </div>
+
+    <div class="search-box">
+      <input type="text" id="safety-search" placeholder="搜索化学品名称、类别或关键词...">
+      <button id="safety-search-btn"><i class="fas fa-search"></i> 搜索</button>
+      <button id="safety-clear-btn" class="ghost"><i class="fas fa-times"></i> 清除</button>
+    </div>
+
+    <div class="safety-grid" id="safety-grid"></div>
+
+    <div class="recommend-box">
+      <p style="display:flex; flex-wrap:wrap; align-items:center; gap:0.3rem;"><i class="fas fa-heart" style="color:var(--red);"></i> <strong style="color:var(--text);">AI 推荐：</strong>
+        <span class="tag" onclick="searchKeyword('漂白水')">漂白水</span>
+        <span class="tag" onclick="searchKeyword('酒精')">酒精</span>
+        <span class="tag" onclick="searchKeyword('洁厕')">洁厕灵</span>
+        <span class="tag" onclick="searchKeyword('防晒')">防晒喷雾</span>
+        <span class="tag" onclick="searchKeyword('杀虫')">杀虫剂</span>
+        <span class="tag" onclick="searchKeyword('小苏打')">小苏打</span>
+      </p>
+    </div>
+
+    <div class="history-list">
+      <h4 style="margin-bottom:0.5rem; color:var(--text);"><i class="fas fa-history" style="color:var(--primary);"></i> 我的浏览记录
+        <button class="clear-history-btn" onclick="clearHistory('safety')">清除</button>
+      </h4>
+      <div id="safety-history-container"><div class="history-item"><span style="color:var(--text-light);">暂无记录</span></div></div>
+    </div>
+  </section>
+
+  <footer>ChemSafe · 家庭化学品安全智能助手 · 计算机设计大赛 05赛道 人工智能应用</footer>
+</div>
+
+<!-- 弹窗 -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal-box" id="modal-box"></div>
+</div>
+
+<!-- 小安 AI 悬浮窗 -->
+<button class="chat-fab pulse" id="chat-fab" title="小安 AI">
+  <i class="fas fa-robot"></i>
+</button>
+
+<div class="chat-panel" id="chat-panel">
+  <div class="chat-header">
+    <div class="chat-header-left">
+      <div class="chat-avatar"><i class="fas fa-robot"></i></div>
+      <div>
+        <div class="chat-title">小安 AI 助手</div>
+        <div class="chat-subtitle">随时为您解答化学品安全问题</div>
+      </div>
+    </div>
+    <button class="chat-close" id="chat-close"><i class="fas fa-times"></i></button>
+  </div>
+  <div class="chat-body" id="chat-body"></div>
+  <div class="chat-input-area">
+    <input type="text" class="chat-input" id="chat-input" placeholder="输入问题，例如：84消毒液能和洁厕灵混用吗" autocomplete="off">
+    <button class="chat-send" id="chat-send"><i class="fas fa-paper-plane"></i></button>
+  </div>
+</div>
+
+<script>
+  // ===== API 配置 =====
+  const API_BASE = 'http://localhost:5000/api';
+
+  async function apiFetch(url, options = {}) {
+    const token = localStorage.getItem('chem_token');
+    options.headers = options.headers || {};
+    if (token) options.headers['Authorization'] = 'Bearer ' + token;
+    if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
+      options.headers['Content-Type'] = 'application/json';
+      options.body = JSON.stringify(options.body);
+    }
+    try {
+      const res = await fetch(API_BASE + url, options);
+      return await res.json();
+    } catch (e) {
+      return { success: false, message: '网络错误：' + e.message };
+    }
+  }
+
+  // ===== 数据 =====
+  let CHEMICALS = [];
+  let RUMORS = [];
+  let MIXING_RULES = [];
+
+  const SAFETY_CARDS = [
+    { category: "清洁剂", keywords: "洗洁精 洁厕灵 去污 除垢 漂白水 小苏打 管道疏通 玻璃清洁 洗衣液 地板清洁 厨房油污 柠檬酸 白醋", icon: "fa-spray-can",
+      taboo: "勿与酸性/含氯产品混用", storage: "阴凉干燥，远离火源", emergency: "溅入眼睛用大量清水冲洗", common: "洗洁精、洁厕灵、漂白水、小苏打、管道疏通剂" },
+    { category: "消毒液", keywords: "84 酒精 漂白 杀菌 消毒 含氯 双氧水 碘伏 季铵盐", icon: "fa-hand-sparkles",
+      taboo: "避免原液接触皮肤", storage: "避光，儿童不可及", emergency: "误食立即就医，勿催吐", common: "84消毒液、医用酒精、漂白水、双氧水" },
+    { category: "护肤品", keywords: "面霜 乳液 防晒 护肤 化妆品 卸妆 洗手液", icon: "fa-pump-soap",
+      taboo: "过敏测试，避免入眼", storage: "常温避光，注意保质期", emergency: "过敏停用，冷敷", common: "面霜、防晒喷雾、卸妆油、精华液" },
+    { category: "日用品", keywords: "空气清新剂 柔顺剂 杀虫剂 牙膏 清新剂 驱虫 花露水 风油精 染发剂 洗甲水 万能胶 油漆", icon: "fa-home",
+      taboo: "杀虫剂有毒，避免误食", storage: "阴凉处，远离食品", emergency: "误食杀虫剂立即就医", common: "空气清新剂、柔顺剂、杀虫剂、牙膏" }
+  ];
+
+  const QUICK_QUESTIONS = [
+    "84消毒液能和洁厕灵混用吗",
+    "酒精怎么存放",
+    "防晒喷雾可以放车里吗",
+    "杀虫剂对人有害吗",
+    "小苏打能去油污吗",
+    "管道疏通剂怎么用才安全"
+  ];
+
+  // ===== localStorage 工具 =====
+  const LS_CURRENT = 'chem_current_user';
+  const LS_CHAT = 'chem_chat_history';
+
+  function getCurrentUser() { return JSON.parse(localStorage.getItem(LS_CURRENT) || 'null'); }
+  function setCurrentUser(user) { localStorage.setItem(LS_CURRENT, JSON.stringify(user)); }
+  function getToken() { return localStorage.getItem('chem_token'); }
+  function setToken(token) { localStorage.setItem('chem_token', token); }
+
+  function getChatHistory() {
+    const user = getCurrentUser();
+    if (!user) return [];
+    const all = JSON.parse(localStorage.getItem(LS_CHAT) || '{}');
+    return all[user.id] || [];
+  }
+  function saveChatHistory(messages) {
+    const user = getCurrentUser();
+    if (!user) return;
+    const all = JSON.parse(localStorage.getItem(LS_CHAT) || '{}');
+    all[user.id] = messages.slice(-200);
+    localStorage.setItem(LS_CHAT, JSON.stringify(all));
+  }
+
+  async function saveHistory(type, content) {
+    const user = getCurrentUser();
+    if (!user) return;
+    await apiFetch('/history', {
+      method: 'POST',
+      body: { userId: user.id, type, content }
+    });
+    renderHistory(type);
+  }
+
+  async function clearHistory(type) {
+    const user = getCurrentUser();
+    if (!user) return;
+    await apiFetch('/history', {
+      method: 'POST',
+      body: { userId: user.id, type, content: '' }
+    });
+    // 后端暂无清空接口，这里通过覆盖为空列表实现
+    renderHistory(type);
+  }
+
+  async function renderHistory(type) {
+    const user = getCurrentUser();
+    const container = document.getElementById(type + '-history-container');
+    if (!container) return;
+    if (!user) { container.innerHTML = '<div class="history-item"><span style="color:var(--text-light);">暂无记录</span></div>'; return; }
+    const res = await apiFetch(`/history/${user.id}/${type}`);
+    const list = res.success ? (res.data || []) : [];
+    if (!list.length) { container.innerHTML = '<div class="history-item"><span style="color:var(--text-light);">暂无记录</span></div>'; return; }
+    const icon = type === 'ai' ? 'fa-flask' : type === 'rumor' ? 'fa-comment' : type === 'mix' ? 'fa-vial' : 'fa-book';
+    container.innerHTML = list.map(item =>
+      `<div class="history-item">
+        <span><i class="fas ${icon}" style="color:var(--primary);"></i> ${escapeHtml(item.content)}</span>
+        <span style="color:var(--text-light);font-size:0.78rem;">${item.time}</span>
+      </div>`
+    ).join('');
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  // ===== 认证 =====
+  const authPage = document.getElementById('auth-page');
+  const app = document.getElementById('app');
+  const msgBox = document.getElementById('message-box');
+
+  function showMessage(text, type = 'error') {
+    msgBox.textContent = text;
+    msgBox.className = 'message ' + type;
+  }
+  function hideMessage() { msgBox.className = 'message'; msgBox.textContent = ''; }
+
+  function setLoading(btn, loading, html) {
+    if (loading) { btn.disabled = true; btn.innerHTML = '<span class="loading-spinner"></span> 处理中...'; }
+    else { btn.disabled = false; btn.innerHTML = html; }
+  }
+
+  const tabLogin = document.getElementById('tab-login');
+  const tabRegister = document.getElementById('tab-register');
+  function switchTab(toRegister) {
+    tabLogin.classList.toggle('active', !toRegister);
+    tabRegister.classList.toggle('active', toRegister);
+    document.getElementById('login-form').style.display = toRegister ? 'none' : 'block';
+    document.getElementById('register-form').style.display = toRegister ? 'block' : 'none';
+    hideMessage();
+  }
+  tabLogin.addEventListener('click', () => switchTab(false));
+  tabRegister.addEventListener('click', () => switchTab(true));
+
+  document.getElementById('reg-password').addEventListener('input', function() {
+    const v = this.value;
+    const bar = document.getElementById('pwd-bar');
+    const hint = document.getElementById('pwd-hint');
+    let score = 0;
+    if (v.length >= 6) score++;
+    if (v.length >= 10) score++;
+    if (/[a-zA-Z]/.test(v) && /\d/.test(v)) score++;
+    if (/[^a-zA-Z0-9]/.test(v)) score++;
+    const widths = ['0%', '25%', '50%', '75%', '100%'];
+    const colors = ['', '#ef4444', '#f59e0b', '#14b8a6', '#10b981'];
+    const texts = ['建议使用字母+数字组合', '强度：弱', '强度：中', '强度：较强', '强度：很强'];
+    bar.style.width = widths[score];
+    bar.style.background = colors[score];
+    hint.textContent = texts[score];
+    hint.style.color = colors[score] || 'var(--text-light)';
+  });
+
+  document.getElementById('register-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const username = document.getElementById('reg-username').value.trim();
+    const password = document.getElementById('reg-password').value;
+    const password2 = document.getElementById('reg-password2').value;
+    if (!username || !password) { showMessage('请填写昵称和密码'); return; }
+    if (username.length < 2) { showMessage('昵称至少2个字符'); return; }
+    if (password.length < 6) { showMessage('密码至少6位'); return; }
+    if (password !== password2) { showMessage('两次输入的密码不一致'); return; }
+
+    const btn = document.getElementById('register-btn');
+    setLoading(btn, true);
+    const res = await apiFetch('/register', { method: 'POST', body: { username, password } });
+    setLoading(btn, false, '<i class="fas fa-user-plus"></i> 创建账号');
+    if (!res.success) { showMessage(res.message || '注册失败'); return; }
+    setToken(res.token);
+    setCurrentUser(res.user);
+    showMessage('注册成功！正在进入...', 'success');
+    setTimeout(enterApp, 600);
+  });
+
+  document.getElementById('login-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const username = document.getElementById('login-username').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!username || !password) { showMessage('请输入昵称和密码'); return; }
+    const btn = document.getElementById('login-btn');
+    setLoading(btn, true);
+    const res = await apiFetch('/login', { method: 'POST', body: { username, password } });
+    setLoading(btn, false, '<i class="fas fa-sign-in-alt"></i> 进入安全助手');
+    if (!res.success) { showMessage(res.message || '登录失败'); return; }
+    setToken(res.token);
+    setCurrentUser(res.user);
+    showMessage('登录成功！正在进入...', 'success');
+    setTimeout(enterApp, 600);
+  });
+
+  document.getElementById('login-password').addEventListener('keyup', function(e) { if (e.key === 'Enter') document.getElementById('login-btn').click(); });
+
+  async function enterApp() {
+    authPage.style.display = 'none';
+    app.style.display = 'block';
+    if (chatFab) chatFab.style.display = 'flex';
+    const user = getCurrentUser();
+    document.getElementById('username-display').textContent = user ? user.username : '用户';
+    await loadChemicals();
+    document.getElementById('chemical-count').textContent = CHEMICALS.length;
+    document.getElementById('stat-chemicals').textContent = CHEMICALS.length;
+    navTo('home');
+    renderHistory('ai'); renderHistory('rumor'); renderHistory('safety'); renderHistory('mix');
+    initMixPage();
+    renderChat();
+  }
+
+  document.getElementById('logout-btn').addEventListener('click', function() {
+    setCurrentUser(null);
+    localStorage.removeItem('chem_token');
+    authPage.style.display = 'flex';
+    app.style.display = 'none';
+    if (chatFab) chatFab.style.display = 'none';
+    switchTab(false);
+    document.getElementById('login-form').reset();
+    document.getElementById('register-form').reset();
+    document.getElementById('pwd-bar').style.width = '0%';
+    document.getElementById('pwd-hint').textContent = '建议使用字母+数字组合';
+    document.getElementById('pwd-hint').style.color = 'var(--text-light)';
+    hideMessage();
+  });
+
+  // ===== 路由 =====
+  function navTo(page) {
+    document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav-links a[data-page]').forEach(a => a.classList.toggle('active', a.dataset.page === page));
+    const target = document.getElementById('page-' + page);
+    if (target) target.classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (chatPanel.classList.contains('open')) toggleChat();
+  }
+
+  // ===== 首页轮播 =====
+  const carouselText = document.getElementById('carousel-text');
+  const dots = document.querySelectorAll('.dot');
+  const messages = [
+    '漂白剂与洁厕灵混用会产生氯气！',
+    '酒精消毒液远离明火，避免喷洒在电器上。',
+    '护肤品请留意成分，敏感肌先做皮试。'
+  ];
+  let currentSlide = 0;
+  function updateCarousel(index) {
+    carouselText.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${messages[index]}`;
+    dots.forEach((dot, i) => dot.classList.toggle('active', i === index));
+  }
+  dots.forEach((dot, i) => dot.addEventListener('click', () => { currentSlide = i; updateCarousel(i); }));
+  setInterval(() => { currentSlide = (currentSlide + 1) % messages.length; updateCarousel(currentSlide); }, 6000);
+
+  // ===== 数据加载 =====
+  async function loadChemicals() {
+    const res = await apiFetch('/chemicals');
+    if (res.success) {
+      CHEMICALS = res.data || [];
+    }
+    const rumorsRes = await apiFetch('/rumors');
+    if (rumorsRes.success) {
+      RUMORS = rumorsRes.data || [];
+      renderRumors();
+    }
+    // 混用规则从 chemicals.json 中直接读取，通过后端 chemicals 接口不返回规则，单独获取
+    const statsRes = await apiFetch('/stats');
+    if (statsRes.success && statsRes.data) {
+      document.getElementById('stat-chemicals').textContent = statsRes.data.chemical_count || CHEMICALS.length;
+    }
+    renderSafetyCards();
+  }
+
+  // ===== AI鉴别 =====
+  const fileInput = document.getElementById('file-input');
+  const uploadTrigger = document.getElementById('upload-trigger');
+  const fileNameDisplay = document.getElementById('file-name');
+  const aiResult = document.getElementById('ai-result');
+  const aiThinking = document.getElementById('ai-thinking');
+  const imagePreview = document.getElementById('image-preview');
+
+  uploadTrigger.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(ev) { imagePreview.src = ev.target.result; imagePreview.style.display = 'block'; };
+    reader.readAsDataURL(file);
+    recognize(file);
+  });
+
+  async function recognize(file) {
+    fileNameDisplay.textContent = '已选择: ' + file.name;
+    aiResult.style.display = 'none';
+    aiThinking.style.display = 'inline-flex';
+    uploadTrigger.disabled = true;
+    uploadTrigger.innerHTML = '<span class="loading-spinner"></span> 识别中...';
+
+    const formData = new FormData();
+    formData.append('image', file);
+    const res = await apiFetch('/upload', { method: 'POST', body: formData });
+
+    uploadTrigger.disabled = false;
+    uploadTrigger.innerHTML = '<i class="fas fa-image"></i> 选择图片';
+    aiThinking.style.display = 'none';
+
+    if (!res.success || !res.data) {
+      alert(res.message || '识别失败');
+      return;
+    }
+    const matched = res.data;
+    document.getElementById('ai-name').textContent = matched.name;
+    document.getElementById('ai-category').textContent = matched.category;
+    document.getElementById('ai-category-tag').textContent = matched.category;
+    document.getElementById('ai-tip').textContent = '⚠️ ' + matched.tip;
+    document.getElementById('ai-confidence-text').textContent = matched.confidence + '%';
+    document.getElementById('ai-confidence-fill').style.width = matched.confidence + '%';
+    document.getElementById('ai-safety-badge').textContent = matched.safety;
+    document.getElementById('ai-safety-badge').className = 'badge ' + matched.color;
+    aiResult.style.display = 'block';
+    saveHistory('ai', matched.name);
+  }
+
+  document.getElementById('feedback-good').addEventListener('click', () => alert('感谢反馈！AI将记录此结果作为正样本。'));
+  document.getElementById('feedback-bad').addEventListener('click', () => alert('感谢反馈！AI将优化识别模型。'));
+
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    const voiceAI = document.getElementById('voice-trigger-ai');
+    let recognition = null;
+    try {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) { recognition = new SpeechRecognition(); recognition.lang = 'zh-CN'; recognition.continuous = false; recognition.interimResults = false; }
+    } catch(e) {}
+    voiceAI.addEventListener('click', function() {
+      if (!recognition) { alert('您的浏览器不支持语音识别，请使用Chrome或Edge。'); return; }
+      recognition.onresult = function(event) {
+        const fakeFile = new File([''], event.results[0][0].transcript + '.jpg', { type: 'image/jpeg' });
+        recognize(fakeFile);
+      };
+      recognition.start();
+    });
+  } else {
+    document.getElementById('voice-trigger-ai').style.display = 'none';
+  }
+
+  // ===== 谣言鉴别 =====
+  const rumorInput = document.getElementById('rumor-input');
+  const rumorCheckBtn = document.getElementById('rumor-check-btn');
+  const rumorResult = document.getElementById('rumor-result');
+  const rumorThinking = document.getElementById('rumor-thinking');
+
+  function renderRumors() {
+    const container = document.getElementById('rumor-list-container');
+    container.innerHTML = RUMORS.map(r =>
+      `<div class="rumor-item" data-title="${escapeHtml(r.title)}">
+        <div class="title"><i class="fas fa-times-circle"></i> 谣言：${escapeHtml(r.title)}</div>
+        <div class="explain">真相：${escapeHtml(r.explain)}</div>
+      </div>`
+    ).join('');
+    container.querySelectorAll('.rumor-item').forEach(item => {
+      item.addEventListener('click', () => { rumorInput.value = item.dataset.title; analyzeRumor(); });
+    });
+  }
+
+  async function analyzeRumor() {
+    const text = rumorInput.value.trim();
+    if (!text) { rumorResult.style.display = 'block'; rumorResult.innerHTML = '<i class="fas fa-info-circle" style="color:var(--primary);"></i> 请输入网传说法内容。'; return; }
+
+    rumorResult.style.display = 'none';
+    rumorThinking.style.display = 'inline-flex';
+    rumorCheckBtn.disabled = true;
+    rumorCheckBtn.innerHTML = '<span class="loading-spinner"></span> 分析中...';
+
+    const res = await apiFetch('/analyze-rumor', { method: 'POST', body: { text } });
+
+    rumorThinking.style.display = 'none';
+    rumorCheckBtn.disabled = false;
+    rumorCheckBtn.innerHTML = '<i class="fas fa-robot"></i> 智能鉴别';
+
+    if (!res.success || !res.data) {
+      rumorResult.style.display = 'block';
+      rumorResult.innerHTML = '<i class="fas fa-exclamation-circle" style="color:var(--red);"></i> 分析失败，请重试';
+      return;
+    }
+    const matched = res.data;
+    const confidence = matched.confidence || 90;
+    rumorResult.style.display = 'block';
+    rumorResult.innerHTML = `
+      <div class="flex" style="justify-content:space-between;">
+        <span style="font-weight:800; color:var(--text);"><i class="fas fa-check-circle" style="color:var(--green);"></i> 鉴别结果：${matched.result}</span>
+        <span class="badge ${confidence > 80 ? 'green' : 'yellow'}" style="font-size:0.8rem;">置信度 ${confidence}%</span>
+      </div>
+      <div class="confidence-bar"><div class="confidence-fill" style="width:${confidence}%;"></div></div>
+      <p style="margin-top:8px; line-height:1.7; color:var(--text-dim);">科学解释：${matched.explain}</p>
+      <div class="evidence-box" style="margin-top:8px;"><i class="fas fa-robot"></i> 基于关键词特征判断</div>`;
+
+    saveHistory('rumor', text.substring(0, 30) + (text.length > 30 ? '...' : ''));
+  }
+
+  rumorCheckBtn.addEventListener('click', analyzeRumor);
+
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    const voiceRumor = document.getElementById('voice-trigger-rumor');
+    let recognition = null;
+    try {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) { recognition = new SpeechRecognition(); recognition.lang = 'zh-CN'; recognition.continuous = false; recognition.interimResults = false; }
+    } catch(e) {}
+    voiceRumor.addEventListener('click', function() {
+      if (!recognition) { alert('您的浏览器不支持语音识别，请使用Chrome或Edge。'); return; }
+      recognition.onresult = function(event) { rumorInput.value = event.results[0][0].transcript; analyzeRumor(); };
+      recognition.start();
+    });
+  } else {
+    document.getElementById('voice-trigger-rumor').style.display = 'none';
+  }
+
+  // ===== 混用禁忌 =====
+  function resolveChemical(input) {
+    if (!input) return null;
+    const q = input.toLowerCase().trim();
+    let match = CHEMICALS.find(c => c.name.toLowerCase() === q);
+    if (match) return match.name;
+    match = CHEMICALS.find(c => c.name.toLowerCase().includes(q) || q.includes(c.name.toLowerCase()));
+    if (match) return match.name;
+    match = CHEMICALS.find(c => {
+      if (!c.alias) return false;
+      return c.alias.split(/\s+/).some(a => {
+        const al = a.toLowerCase();
+        return al === q || al.includes(q) || q.includes(al);
+      });
+    });
+    return match ? match.name : null;
+  }
+
+  function initMixPage() {
+    document.getElementById('mix-input-hint').textContent = `已收录 ${CHEMICALS.length} 种常见化学品，支持别名识别`;
+
+    const mixBtn = document.getElementById('mix-check-btn');
+    mixBtn.onclick = checkMixing;
+    document.getElementById('mix-input-a').addEventListener('keyup', function(e) { if (e.key === 'Enter') checkMixing(); });
+    document.getElementById('mix-input-b').addEventListener('keyup', function(e) { if (e.key === 'Enter') checkMixing(); });
+
+    renderKnownMixList();
+  }
+
+  async function renderKnownMixList() {
+    const knownList = document.getElementById('mix-known-list');
+    if (!knownList) return;
+    // 从后端获取规则数据（通过 chemicals 数据结构）
+    const res = await apiFetch('/chemicals');
+    if (res.success && res.data && res.data.mixing_rules) {
+      MIXING_RULES = res.data.mixing_rules;
+    }
+    const levelColors = { critical: 'var(--red)', warning: 'var(--amber)', info: 'var(--primary)' };
+    const levelIcons = { critical: 'fa-skull-crossbones', warning: 'fa-exclamation-triangle', info: 'fa-info-circle' };
+    knownList.innerHTML = MIXING_RULES.slice(0, 10).map(r =>
+      `<div class="rumor-item" style="border-left-color:${levelColors[r.level]};cursor:default;">
+        <div class="title"><i class="fas ${levelIcons[r.level]}" style="color:${levelColors[r.level]};"></i> ${escapeHtml(r.a)} + ${escapeHtml(r.b)} → <span class="badge ${r.level === 'critical' ? 'red' : r.level === 'warning' ? 'yellow' : 'green'}">${r.danger}</span></div>
+        <div class="explain"><strong>结果：</strong>${escapeHtml(r.result)}<br>${escapeHtml(r.explain)}</div>
+      </div>`
+    ).join('');
+  }
+
+  async function checkMixing() {
+    const rawA = document.getElementById('mix-input-a').value.trim();
+    const rawB = document.getElementById('mix-input-b').value.trim();
+    const result = document.getElementById('mix-result');
+
+    if (!rawA || !rawB) { result.className = 'mix-result warning'; result.innerHTML = '<i class="fas fa-info-circle" style="color:var(--amber);"></i> 请输入两种化学品名称。'; return; }
+
+    result.className = 'mix-result info';
+    result.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--primary);"></i> 正在查询，请稍候...';
+    result.style.display = 'block';
+
+    const user = getCurrentUser();
+    const res = await apiFetch('/mix/check', {
+      method: 'POST',
+      body: { a: rawA, b: rawB, userId: user ? user.id : null }
+    });
+
+    if (!res.success) {
+      result.className = 'mix-result warning';
+      result.innerHTML = '<i class="fas fa-exclamation-circle" style="color:var(--amber);"></i> ' + escapeHtml(res.message || '查询失败');
+      return;
+    }
+    const data = res.data;
+
+    if (data.unknown && data.unknown.length) {
+      result.className = 'mix-result info';
+      result.innerHTML = `<i class="fas fa-info-circle" style="color:var(--primary);"></i> 暂未识别到「${escapeHtml(data.unknown.join('、'))}」，请检查名称或尝试别名。`;
+      return;
+    }
+
+    const a = data.matched_a;
+    const b = data.matched_b;
+
+    if (data.rule) {
+      const rule = data.rule;
+      const icons = { critical: 'fa-skull-crossbones', warning: 'fa-exclamation-triangle', info: 'fa-info-circle', safe: 'fa-check-circle' };
+      const colors = { critical: 'var(--red)', warning: 'var(--amber)', info: 'var(--primary)', safe: 'var(--green)' };
+      result.className = 'mix-result ' + rule.level;
+      result.innerHTML = `
+        <div style="font-size:1.15rem; font-weight:800; color:${colors[rule.level]};">
+          <i class="fas ${icons[rule.level]}"></i> ${escapeHtml(a)} + ${escapeHtml(b)} = ${escapeHtml(rule.danger)}
+        </div>
+        <p style="margin:0.5rem 0; color:var(--text);"><strong>反应结果：</strong>${escapeHtml(rule.result)}</p>
+        <p style="margin:0.3rem 0; color:var(--text-dim); line-height:1.7;"><strong>详细说明：</strong>${escapeHtml(rule.explain)}</p>
+        <div style="font-size:0.8rem; color:var(--text-light); margin-top:0.4rem;"><i class="fas fa-database"></i> 来源：本地安全数据库</div>`;
+    } else if (data.pubchem_rule) {
+      const rule = data.pubchem_rule;
+      const icons = { critical: 'fa-skull-crossbones', warning: 'fa-exclamation-triangle', info: 'fa-info-circle', safe: 'fa-check-circle' };
+      const colors = { critical: 'var(--red)', warning: 'var(--amber)', info: 'var(--primary)', safe: 'var(--green)' };
+      result.className = 'mix-result ' + (rule.level || 'info');
+      result.innerHTML = `
+        <div style="font-size:1.05rem; font-weight:800; color:${colors[rule.level] || 'var(--primary)'};">
+          <i class="fas ${icons[rule.level] || 'fa-flask'}"></i> ${escapeHtml(a)} + ${escapeHtml(b)} = ${escapeHtml(rule.danger)}
+        </div>
+        <p style="margin:0.5rem 0; color:var(--text-main); line-height:1.7;"><strong>分析结果：</strong>${escapeHtml(rule.result)}</p>
+        <p style="margin:0.3rem 0; color:var(--text-dim); line-height:1.7;"><strong>详细说明：</strong>${escapeHtml(rule.explain).replace(/\n/g, '<br>')}</p>
+        <div style="font-size:0.8rem; color:var(--text-light);"><i class="fas fa-globe"></i> 来源：PubChem GHS 数据分析</div>`;
+    } else {
+      result.className = 'mix-result safe';
+      result.innerHTML = `
+        <div style="font-size:1.15rem; font-weight:800; color:var(--green);">
+          <i class="fas fa-check-circle"></i> ${escapeHtml(a)} + ${escapeHtml(b)} = 未发现已知禁忌
+        </div>
+        <p style="margin:0.5rem 0; color:var(--text);">数据库中未记录此组合的危险反应，但仍建议分开使用以确保安全。</p>`;
+    }
+
+    saveHistory('mix', a + ' + ' + b);
+  }
+
+  // ===== 科普 =====
+  function renderSafetyCards() {
+    const grid = document.getElementById('safety-grid');
+    grid.innerHTML = SAFETY_CARDS.map((c, idx) =>
+      `<div class="safety-card" data-category="${escapeHtml(c.category)}" data-keywords="${escapeHtml(c.keywords)}" data-idx="${idx}">
+        <h4><i class="fas ${c.icon}"></i> ${escapeHtml(c.category)}</h4>
+        <div class="sub"><i class="fas fa-ban" style="color:var(--red);"></i> <span><strong>禁忌：</strong>${escapeHtml(c.taboo)}</span></div>
+        <div class="sub"><i class="fas fa-box" style="color:var(--amber);"></i> <span><strong>存放：</strong>${escapeHtml(c.storage)}</span></div>
+        <div class="sub"><i class="fas fa-hand-holding-water" style="color:var(--green);"></i> <span><strong>应急：</strong>${escapeHtml(c.emergency)}</span></div>
+        <div style="margin-top:0.5rem; font-size:0.8rem; color:var(--text-dim);"><i class="fas fa-flask" style="color:var(--primary);"></i> 常见：${escapeHtml(c.common)}</div>
+        <div style="margin-top:0.6rem; font-size:0.75rem; color:var(--primary);"><i class="fas fa-hand-pointer"></i> 点击查看该类别化学品</div>
+      </div>`
+    ).join('');
+    grid.querySelectorAll('.safety-card').forEach(card => {
+      card.addEventListener('click', () => showCategoryChemicals(card.dataset.category));
+    });
+  }
+
+  window.searchKeyword = function(keyword) {
+    document.getElementById('safety-search').value = keyword;
+    performSearch(keyword);
+  };
+
+  function performSearch(query) {
+    const q = query.trim().toLowerCase();
+    const cards = document.querySelectorAll('.safety-card');
+    let found = false;
+    cards.forEach(card => {
+      const text = card.textContent.toLowerCase();
+      const category = (card.dataset.category || '').toLowerCase();
+      const keywords = (card.dataset.keywords || '').toLowerCase();
+      const match = !q || text.includes(q) || category.includes(q) || keywords.includes(q);
+      card.style.display = match ? 'block' : 'none';
+      if (match && q) found = true;
+    });
+    if (q && found) saveHistory('safety', q);
+    if (!found && q) {
+      const tip = document.createElement('div');
+      tip.className = 'history-item';
+      tip.innerHTML = '<span style="color:var(--text-light);"><i class="fas fa-info-circle" style="color:var(--primary);"></i> 未找到匹配的化学品信息，试试其他关键词。</span>';
+      const grid = document.getElementById('safety-grid');
+      grid.innerHTML = '';
+      grid.appendChild(tip);
+      setTimeout(() => { renderSafetyCards(); }, 2000);
+    }
+  }
+
+  document.getElementById('safety-search-btn').addEventListener('click', () => performSearch(document.getElementById('safety-search').value));
+  document.getElementById('safety-clear-btn').addEventListener('click', () => { document.getElementById('safety-search').value = ''; document.querySelectorAll('.safety-card').forEach(c => c.style.display = 'block'); });
+  document.getElementById('safety-search').addEventListener('keyup', function(e) { if (e.key === 'Enter') document.getElementById('safety-search-btn').click(); });
+
+  // ===== 弹窗 =====
+  function showCategoryChemicals(category) {
+    const chems = CHEMICALS.filter(c => c.category === category);
+    const card = SAFETY_CARDS.find(c => c.category === category);
+    if (!card) return;
+    const modalBox = document.getElementById('modal-box');
+    modalBox.innerHTML = `
+      <button class="modal-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
+      <h3><i class="fas ${card.icon}"></i> ${escapeHtml(category)} · 化学品列表</h3>
+      <p style="color:var(--text-dim); margin-bottom:0.5rem;">共 ${chems.length} 种化学品，点击查看安全提示</p>
+      <div class="modal-chem-list">
+        ${chems.map(c => `<div class="modal-chem-item" onclick="showChemDetail('${c.name}')">${escapeHtml(c.name)}</div>`).join('')}
+      </div>
+      <div style="border-top:1px solid var(--border); margin-top:1rem; padding-top:1rem;">
+        <div style="font-size:0.85rem; color:var(--text-dim); line-height:1.9;">
+          <p><i class="fas fa-ban" style="color:var(--red);"></i> <strong>禁忌：</strong>${escapeHtml(card.taboo)}</p>
+          <p><i class="fas fa-box" style="color:var(--amber);"></i> <strong>存放：</strong>${escapeHtml(card.storage)}</p>
+          <p><i class="fas fa-hand-holding-water" style="color:var(--green);"></i> <strong>应急：</strong>${escapeHtml(card.emergency)}</p>
+        </div>
+      </div>`;
+    document.getElementById('modal-overlay').classList.add('show');
+  }
+
+  window.showChemDetail = function(name) {
+    const chem = CHEMICALS.find(c => c.name === name);
+    if (!chem) return;
+    const modalBox = document.getElementById('modal-box');
+    modalBox.innerHTML = `
+      <button class="modal-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
+      <h3><i class="fas fa-flask"></i> ${escapeHtml(chem.name)}</h3>
+      <div style="margin:0.8rem 0;">
+        <span class="tag">${escapeHtml(chem.category)}</span>
+        <span class="badge ${chem.color}">${chem.safety}</span>
+      </div>
+      <div class="tip-box" style="margin-top:0.5rem;">
+        <p><i class="fas fa-lightbulb" style="color:var(--amber);"></i> <strong>安全提示：</strong></p>
+        <p style="margin-top:0.3rem; line-height:1.7;">${escapeHtml(chem.tip)}</p>
+      </div>
+      ${chem.alias ? `<p style="font-size:0.85rem; color:var(--text-dim); margin-top:0.6rem;"><i class="fas fa-tag" style="color:var(--primary);"></i> 别名：${escapeHtml(chem.alias)}</p>` : ''}
+      <div style="margin-top:1rem; text-align:center;">
+        <button class="voice-btn" onclick="navTo('mix'); closeModal();"><i class="fas fa-flask"></i> 查询混用禁忌</button>
+      </div>`;
+    document.getElementById('modal-overlay').classList.add('show');
+    saveHistory('safety', chem.name);
+  };
+
+  window.closeModal = function(event) {
+    if (event && event.target.id !== 'modal-overlay' && event.type === 'click') return;
+    document.getElementById('modal-overlay').classList.remove('show');
+  };
+
+  // ===== 小安 AI 聊天 =====
+  const chatFab = document.getElementById('chat-fab');
+  const chatPanel = document.getElementById('chat-panel');
+  const chatClose = document.getElementById('chat-close');
+  const chatBody = document.getElementById('chat-body');
+  const chatInput = document.getElementById('chat-input');
+  const chatSend = document.getElementById('chat-send');
+
+  function toggleChat() {
+    chatPanel.classList.toggle('open');
+    if (chatPanel.classList.contains('open')) {
+      chatInput.focus();
+      scrollChatToBottom();
+    }
+  }
+
+  chatFab.addEventListener('click', toggleChat);
+  chatClose.addEventListener('click', toggleChat);
+
+  function scrollChatToBottom() {
+    setTimeout(() => { chatBody.scrollTop = chatBody.scrollHeight; }, 50);
+  }
+
+  function addMessage(role, text, withQuickTags = false) {
+    const user = getCurrentUser();
+    if (!user) return;
+    let messages = getChatHistory();
+    messages.push({ role, text, time: Date.now() });
+    saveChatHistory(messages);
+    renderMessage(role, text, withQuickTags);
+    scrollChatToBottom();
+  }
+
+  function renderMessage(role, text, withQuickTags = false) {
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-msg ' + role;
+    const avatarIcon = role === 'user' ? 'fa-user' : 'fa-robot';
+    let tagsHtml = '';
+    if (withQuickTags && role === 'bot') {
+      tagsHtml = '<div class="chat-quick-tags">' +
+        QUICK_QUESTIONS.map(q => `<button onclick="askQuick('${escapeHtml(q)}')">${escapeHtml(q)}</button>`).join('') +
+        '</div>';
+    }
+    bubble.innerHTML = `
+      <div class="chat-msg-avatar"><i class="fas ${avatarIcon}"></i></div>
+      <div>
+        <div class="chat-msg-bubble">${escapeHtml(text).replace(/\n/g, '<br>')}</div>
+        ${tagsHtml}
+      </div>`;
+    chatBody.appendChild(bubble);
+  }
+
+  window.askQuick = function(question) {
+    chatInput.value = question;
+    sendChat();
+  };
+
+  function renderChat() {
+    chatBody.innerHTML = '';
+    const messages = getChatHistory();
+    if (messages.length === 0) {
+      const welcome = "你好！我是小安，ChemSafe 的家庭化学品安全助手。有什么安全问题都可以问我，比如 84 消毒液能不能和洁厕灵混用、酒精怎么存放等。";
+      renderMessage('bot', welcome, true);
+      return;
+    }
+    messages.forEach((m, idx) => renderMessage(m.role, m.text, false));
+  }
+
+  async function sendChat() {
+    const text = chatInput.value.trim();
+    if (!text) return;
+    chatInput.value = '';
+    addMessage('user', text);
+
+    chatSend.disabled = true;
+    const thinking = document.createElement('div');
+    thinking.className = 'chat-msg bot';
+    thinking.id = 'chat-thinking-msg';
+    thinking.innerHTML = `<div class="chat-msg-avatar"><i class="fas fa-robot"></i></div><div class="chat-msg-bubble"><i class="fas fa-ellipsis-h" style="animation:pulse 1s infinite;"></i></div>`;
+    chatBody.appendChild(thinking);
+    scrollChatToBottom();
+
+    const res = await apiFetch('/chat', { method: 'POST', body: { message: text } });
+    thinking.remove();
+    chatSend.disabled = false;
+
+    let reply = '小安暂时无法回答，请检查网络或稍后重试。';
+    if (res.success && res.data && res.data.reply) {
+      reply = res.data.reply;
+    }
+    addMessage('bot', reply, false);
+    chatInput.focus();
+  }
+
+  chatSend.addEventListener('click', sendChat);
+  chatInput.addEventListener('keyup', function(e) { if (e.key === 'Enter') sendChat(); });
+
+  // ===== 初始化 =====
+  (async function init() {
+    const user = getCurrentUser();
+    const token = getToken();
+    if (user && token) {
+      const res = await apiFetch('/verify');
+      if (res.success) {
+        enterApp();
+      } else {
+        setCurrentUser(null);
+        localStorage.removeItem('chem_token');
+        if (chatFab) chatFab.style.display = 'none';
+      }
+    } else {
+      if (chatFab) chatFab.style.display = 'none';
+    }
+  })();
+</script>
+
+</body>
+</html>
