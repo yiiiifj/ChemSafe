@@ -134,7 +134,7 @@ def read_json(file_path):
         with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except (json.JSONDecodeError, FileNotFoundError):
-        if any(k in file_path for k in ('histories', 'chemicals', 'pubchem_cache')):
+        if any(k in file_path for k in ('histories', 'chemicals', 'pubchem_cache', 'deepseek_advice_cache')):
             return {}
         return []
 
