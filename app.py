@@ -154,6 +154,52 @@ def get_chemicals_data():
     return read_json(CHEMICALS_FILE)
 
 
+def _pick_pubchem_display_name(pub):
+    """从 PubChem 名称和同义词中挑选适合展示的名称（避开 CAS 号、SMILES、InChI）"""
+    import re
+    candidates = [pub.get('name', '')] + pub.get('synonyms', [])
+
+    def is_cas(s):
+        return bool(re.match(r'^\d{1,7}-\d{2}-\d$', s))
+
+    def is_smiles_or_inchi(s):
+        return s.startswith('InChI=') or s.startswith('SMILES=') or ('=' in s and '@' in s)
+
+    best = pub.get('name', '')
+    best_score = -999
+
+    for c in candidates:
+        c = c.strip()
+        if not c or len(c) < 3 or len(c) > 50:
+            continue
+        if is_cas(c) or is_smiles_or_inchi(c):
+            continue
+        if re.match(r'^\d+$', c):
+            continue
+
+        score = 0
+        # 越短越适合展示
+        score += max(0, 50 - len(c))
+        # 偏好首字母大写的常见名（如 Aspirin、Ibuprofen）
+        if c[0].isupper() and not c.isupper():
+            score += 15
+        # 全小写常见名也可以
+        elif c.islower():
+            score += 8
+        # 全大写化学名稍差
+        if c.isupper():
+            score -= 10
+        # 含空格通常是正式名或通用名
+        if ' ' in c:
+            score += 3
+
+        if score > best_score:
+            best_score = score
+            best = c
+
+    return best
+
+
 def resolve_chemical(input_name, use_pubchem=True):
     """根据名称或别名解析出标准化学品名称；本地未命中时可查询 PubChem"""
     if not input_name:
@@ -199,14 +245,7 @@ def resolve_chemical(input_name, use_pubchem=True):
         pub_query = PUBCHEM_NAME_MAP.get(input_name, input_name)
         pub = pubchem_lookup(pub_query)
         if pub:
-            # 用 PubChem 的 IUPAC 名或首个同义词作为标准名
-            std = pub['name']
-            # 如果 IUPAC 名太长，尝试用更短的同义词
-            for syn in pub.get('synonyms', []):
-                if 3 <= len(syn) <= 40 and syn.lower().strip() == syn:
-                    std = syn
-                    break
-            return std
+            return _pick_pubchem_display_name(pub)
     return None
 
 
