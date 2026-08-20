@@ -1,11 +1,12 @@
 services:
   - type: web
     name: chemsafe
-    runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+    runtime: docker
+    plan: free
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.0
       - key: JWT_SECRET_KEY
         generateValue: true
+      - key: DEEPSEEK_API_URL
+        value: https://api.deepseek.com/chat/completions
+      - key: DEEPSEEK_MODEL
+        value: deepseek-chat
