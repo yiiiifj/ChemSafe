@@ -552,18 +552,6 @@ def build_local_chat_reply(user_input):
 
 # ============ API 路由 ============
 
-@app.route('/api/admin/cleanup', methods=['POST'])
-def admin_cleanup():
-    """临时清理接口：清空用户和历史数据（需密钥）"""
-    data = request.json or {}
-    secret = os.getenv('CLEANUP_SECRET', 'chemsafe-cleanup-2024')
-    if data.get('secret') != secret:
-        return jsonify({'success': False, 'message': '密钥错误'}), 403
-    write_json(USERS_FILE, [])
-    write_json(HISTORIES_FILE, {})
-    return jsonify({'success': True, 'message': '用户和历史数据已清空'})
-
-
 @app.route('/api/register', methods=['POST'])
 def register():
     data = request.json
