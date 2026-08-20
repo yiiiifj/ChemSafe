@@ -53,6 +53,10 @@ PUBCHEM_CACHE_FILE = os.path.join(DATA_DIR, 'pubchem_cache.json')
 PUBCHEM_MIN_INTERVAL = 0.4  # NCBI 限速：请求间隔不低于 0.4 秒
 _pubchem_last_request = 0.0
 
+# DeepSeek 中文建议缓存（避免重复调用、节省费用）
+ADVICE_CACHE_FILE = os.path.join(DATA_DIR, 'deepseek_advice_cache.json')
+
+
 # 常见中文化学品 -> PubChem 查询名（提升中文识别率）
 PUBCHEM_NAME_MAP = {
     '医用酒精': 'ethanol',
@@ -210,7 +214,7 @@ def find_mix_rule(a, b):
 
 
 def deepseek_chat(messages, temperature=0.7, max_tokens=800):
-    """调用 DeepSeek API（当前未使用，保留代码以便后续切换）"""
+    """调用 DeepSeek API"""
     if not DEEPSEEK_API_KEY:
         return None, 'DeepSeek API 密钥未配置'
     try:
@@ -230,6 +234,84 @@ def deepseek_chat(messages, temperature=0.7, max_tokens=800):
         return data['choices'][0]['message']['content'], None
     except Exception as e:
         return None, str(e)
+
+
+def _load_advice_cache():
+    try:
+        return read_json(ADVICE_CACHE_FILE)
+    except Exception:
+        return {}
+
+
+def _save_advice_cache(cache):
+    write_json(ADVICE_CACHE_FILE, cache)
+
+
+def _build_advice_cache_key(context, *identifiers):
+    """根据场景和化学品标识生成缓存键"""
+    parts = [context] + sorted(str(i).lower().strip() for i in identifiers if i)
+    return '|'.join(parts)
+
+
+def generate_pubchem_advice(pub_a, pub_b=None, context='single'):
+    """
+    基于 PubChem 数据调用 DeepSeek 生成中文安全建议。
+    context: 'single'(单化学品) / 'mix'(混用分析) / 'chat'(聊天 fallback)
+    失败时返回 None。
+    """
+    if not DEEPSEEK_API_KEY:
+        return None
+
+    cache = _load_advice_cache()
+    cache_key = _build_advice_cache_key(
+        context,
+        pub_a.get('cid') or pub_a.get('name'),
+        (pub_b or {}).get('cid') or (pub_b or {}).get('name')
+    )
+    if cache_key in cache:
+        return cache[cache_key]
+
+    def fmt_hazards(pub):
+        hazards = pub.get('hazards', [])
+        return ', '.join(hazards) if hazards else '暂无明确 GHS 危害声明'
+
+    if context == 'mix' and pub_b:
+        prompt = (
+            "你是家庭化学品安全专家。请根据以下两种化学品的 PubChem GHS 数据，"
+            "判断它们在日常生活中混用是否安全，并用中文给出结论、原因和防范建议。"
+            "要求：1. 先给出明确结论（禁止混用/不建议混用/相对安全）；"
+            "2. 用通俗易懂的中文解释风险；3. 给出 1-2 条实用建议；"
+            "4. 不确定的信息不要编造。\n\n"
+            f"化学品A：{pub_a.get('name', '未知')}，CID {pub_a.get('cid', 'N/A')}，"
+            f"分子式 {pub_a.get('formula', 'N/A')}\n"
+            f"GHS 危害声明：{fmt_hazards(pub_a)}\n\n"
+            f"化学品B：{pub_b.get('name', '未知')}，CID {pub_b.get('cid', 'N/A')}，"
+            f"分子式 {pub_b.get('formula', 'N/A')}\n"
+            f"GHS 危害声明：{fmt_hazards(pub_b)}"
+        )
+    else:
+        prompt = (
+            "你是家庭化学品安全专家。请根据以下 PubChem 数据库信息，"
+            "用中文简要说明该化学品在家庭日常场景中的安全使用、存放注意事项以及常见混用禁忌。"
+            "要求：1. 语言简洁、通俗；2. 突出家庭场景中的实际风险；"
+            "3. 给出 2-3 条具体建议；4. 不确定的信息不要编造。\n\n"
+            f"化学品名称（PubChem）：{pub_a.get('name', '未知')}\n"
+            f"CID：{pub_a.get('cid', 'N/A')}\n"
+            f"分子式：{pub_a.get('formula', 'N/A')}\n"
+            f"GHS 危害声明：{fmt_hazards(pub_a)}"
+        )
+
+    messages = [
+        {'role': 'system', 'content': '你是一位专业的家庭化学品安全顾问，回答简洁、准确、有安全意识。'},
+        {'role': 'user', 'content': prompt}
+    ]
+    reply, err = deepseek_chat(messages, temperature=0.5, max_tokens=600)
+    if reply:
+        cache[cache_key] = reply
+        _save_advice_cache(cache)
+        return reply
+    print(f'DeepSeek 生成 PubChem 中文建议失败: {err}')
+    return None
 
 
 # ============ PubChem 查询模块 ============
@@ -543,6 +625,13 @@ def build_local_chat_reply(user_input):
                     break
 
     if pub:
+        advice = generate_pubchem_advice(pub, context='chat')
+        if advice:
+            return (
+                f"我从 PubChem 数据库查到「{pub['name']}」（CID {pub['cid']}，分子式 {pub['formula']}）。\n\n"
+                f"{advice}",
+                'pubchem+deepseek'
+            )
         codes = extract_hazard_codes(pub.get('hazards', []))
         return (
             f"我从 PubChem 数据库查到「{pub['name']}」（CID {pub['cid']}，分子式 {pub['formula']}）。\n"
@@ -644,17 +733,29 @@ def get_chemicals():
 
 @app.route('/api/chemicals/resolve', methods=['POST'])
 def resolve_chemical_api():
-    """解析用户输入的化学品名称"""
+    """解析用户输入的化学品名称；本地未命中时调用 PubChem 并用 DeepSeek 生成中文建议"""
     data = request.json
     name = data.get('name', '')
     matched = resolve_chemical(name)
     chemicals = get_chemicals_data().get('chemicals', [])
     chem_info = next((c for c in chemicals if c['name'] == matched), None)
+
+    # 本地未命中但 PubChem 命中：补齐中文建议
+    pubchem_info = None
+    advice = None
+    if matched and not chem_info:
+        pub_query = PUBCHEM_NAME_MAP.get(name, name)
+        pubchem_info = pubchem_lookup(pub_query)
+        if pubchem_info:
+            advice = generate_pubchem_advice(pubchem_info, context='single')
+
     return jsonify({
         'success': True,
         'input': name,
         'matched': matched,
-        'data': chem_info
+        'data': chem_info,
+        'pubchem_info': pubchem_info,
+        'advice': advice
     })
 
 
@@ -869,11 +970,13 @@ def mix_check():
         if pub_b and not b:
             result['matched_b'] = pub_b['name']
         analysis = pubchem_mix_analysis(info_a, info_b)
+        # 优先用 DeepSeek 生成自然中文解释，失败则保留 GHS 规则解释
+        deepseek_explain = generate_pubchem_advice(info_a, info_b, context='mix')
         result['pubchem_rule'] = {
             'level': analysis['level'],
             'danger': analysis['danger'],
             'result': analysis['result'],
-            'explain': analysis['explain']
+            'explain': deepseek_explain or analysis['explain']
         }
         return jsonify({'success': True, 'data': result})
 
