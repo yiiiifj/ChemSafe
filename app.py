@@ -556,7 +556,8 @@ def build_local_chat_reply(user_input):
 def admin_cleanup():
     """临时清理接口：清空用户和历史数据（需密钥）"""
     data = request.json or {}
-    if data.get('secret') != os.getenv('CLEANUP_SECRET', 'chemsafe-cleanup-2024'):
+    secret = os.getenv('CLEANUP_SECRET', 'chemsafe-cleanup-2024')
+    if data.get('secret') != secret:
         return jsonify({'success': False, 'message': '密钥错误'}), 403
     write_json(USERS_FILE, [])
     write_json(HISTORIES_FILE, {})
