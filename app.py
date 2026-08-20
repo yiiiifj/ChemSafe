@@ -154,16 +154,23 @@ def get_chemicals_data():
     return read_json(CHEMICALS_FILE)
 
 
-def _pick_pubchem_display_name(pub):
+def _pick_pubchem_display_name(pub, preferred=None):
     """从 PubChem 名称和同义词中挑选适合展示的名称（避开 CAS 号、SMILES、InChI）"""
     import re
     candidates = [pub.get('name', '')] + pub.get('synonyms', [])
+    preferred_l = (preferred or '').lower().strip()
 
     def is_cas(s):
         return bool(re.match(r'^\d{1,7}-\d{2}-\d$', s))
 
     def is_smiles_or_inchi(s):
         return s.startswith('InChI=') or s.startswith('SMILES=') or ('=' in s and '@' in s)
+
+    # 如果有查询词，优先返回与其完全匹配的同义词（保持 PubChem 原始大小写）
+    if preferred_l:
+        for c in candidates:
+            if c.strip().lower() == preferred_l:
+                return c.strip()
 
     best = pub.get('name', '')
     best_score = -999
@@ -178,8 +185,8 @@ def _pick_pubchem_display_name(pub):
             continue
 
         score = 0
-        # 越短越适合展示
-        score += max(0, 50 - len(c))
+        # 偏好长度 8-12 的通用名，避免品牌名过短取胜
+        score += max(0, 40 - abs(len(c) - 10))
         # 偏好首字母大写的常见名（如 Aspirin、Ibuprofen）
         if c[0].isupper() and not c.isupper():
             score += 15
@@ -245,7 +252,7 @@ def resolve_chemical(input_name, use_pubchem=True):
         pub_query = PUBCHEM_NAME_MAP.get(input_name, input_name)
         pub = pubchem_lookup(pub_query)
         if pub:
-            return _pick_pubchem_display_name(pub)
+            return _pick_pubchem_display_name(pub, preferred=pub_query)
     return None
 
 
