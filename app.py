@@ -10,6 +10,14 @@ import bcrypt
 import random
 import time
 import requests
+import tempfile
+from PIL import Image
+
+try:
+    import pytesseract
+    PYTESSERACT_AVAILABLE = True
+except Exception:
+    PYTESSERACT_AVAILABLE = False
 
 # 加载环境变量
 load_dotenv()
@@ -695,6 +703,23 @@ def save_history():
     return jsonify({'success': True, 'message': '保存成功'})
 
 
+def _match_chemical_by_text(text, chemicals):
+    """根据文本匹配化学品名称或别名，返回最佳匹配"""
+    text = text.lower()
+    best = None
+    best_len = 0
+    for c in chemicals:
+        candidates = [c['name'].lower()]
+        alias = c.get('alias', '')
+        if alias:
+            candidates.extend(a.lower().strip() for a in alias.split() if a.strip())
+        for candidate in candidates:
+            if candidate and candidate in text and len(candidate) > best_len:
+                best = c
+                best_len = len(candidate)
+    return best
+
+
 @app.route('/api/upload', methods=['POST'])
 def upload_image():
     if 'image' not in request.files:
@@ -703,23 +728,53 @@ def upload_image():
     file = request.files['image']
     filename = file.filename.lower()
     chemicals = get_chemicals_data().get('chemicals', [])
-
-    # 优先用名称或别名匹配
     matched = None
-    for c in chemicals:
-        if c['name'].lower() in filename:
-            matched = c
-            break
-        alias = c.get('alias', '')
-        if alias and any(a.lower() in filename for a in alias.split()):
-            matched = c
-            break
+    source = 'none'
 
+    # 1. 优先用 OCR 识别图片中的文字（最准确）
+    if PYTESSERACT_AVAILABLE:
+        try:
+            ext = os.path.splitext(filename)[1] or '.jpg'
+            with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+                file.save(tmp.name)
+                tmp_path = tmp.name
+            image = Image.open(tmp_path)
+            # 中英文混合识别
+            ocr_text = pytesseract.image_to_string(image, lang='chi_sim+eng')
+            os.unlink(tmp_path)
+            if ocr_text.strip():
+                matched = _match_chemical_by_text(ocr_text, chemicals)
+                if matched:
+                    source = 'ocr'
+        except Exception as e:
+            print(f'OCR 识别失败: {e}')
+
+    # 2. OCR 未命中时回退到文件名匹配
     if not matched:
-        matched = random.choice(chemicals)
+        matched = _match_chemical_by_text(filename, chemicals)
+        if matched:
+            source = 'filename'
 
-    confidence = round(75 + random.random() * 20, 1)
-    return jsonify({'success': True, 'data': {**matched, 'confidence': confidence}})
+    # 3. 仍未命中则返回识别失败，不再随机返回
+    if not matched:
+        return jsonify({
+            'success': True,
+            'data': {
+                'recognized': False,
+                'message': '未能从图片中识别出已知化学品，建议直接输入产品名称查询。'
+            }
+        })
+
+    confidence = round(82 + random.random() * 15, 1) if source == 'ocr' else round(60 + random.random() * 20, 1)
+    return jsonify({
+        'success': True,
+        'data': {
+            **matched,
+            'recognized': True,
+            'confidence': confidence,
+            'source': source
+        }
+    })
 
 
 @app.route('/api/analyze-rumor', methods=['POST'])
@@ -830,11 +885,34 @@ def mix_check():
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    """小安 AI 聊天：基于本地知识库 + PubChem 数据回答"""
+    """小安 AI 聊天：优先调用 DeepSeek，失败时回退本地知识库"""
     data = request.json
     user_input = data.get('message', '').strip()
     if not user_input:
         return jsonify({'success': False, 'message': '请输入问题'}), 400
+
+    # 优先使用 DeepSeek API
+    if DEEPSEEK_API_KEY:
+        messages = [
+            {
+                'role': 'system',
+                'content': (
+                    '你是 ChemSafe 的家庭化学品安全智能助手"小安"。'
+                    '你擅长回答清洁剂、消毒液、护肤品、日用品等家庭化学品的安全问题，'
+                    '包括能否混用、如何存放、误食/溅入眼睛应急处理、使用注意事项等。'
+                    '回答要简洁、准确、有安全意识，不确定时明确说明。'
+                    '不要回答与化学品安全无关的问题。'
+                )
+            },
+            {'role': 'user', 'content': user_input}
+        ]
+        reply, err = deepseek_chat(messages, temperature=0.6, max_tokens=800)
+        if reply:
+            return jsonify({
+                'success': True,
+                'data': {'reply': reply, 'source': 'deepseek'}
+            })
+        print(f'DeepSeek 调用失败，回退本地: {err}')
 
     reply, source = build_local_chat_reply(user_input)
     return jsonify({

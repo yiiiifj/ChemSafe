@@ -1151,6 +1151,18 @@
       return;
     }
     const matched = res.data;
+    if (matched.recognized === false) {
+      document.getElementById('ai-name').textContent = '未识别';
+      document.getElementById('ai-category').textContent = '-';
+      document.getElementById('ai-category-tag').textContent = '未识别';
+      document.getElementById('ai-tip').textContent = matched.message || '未能从图片中识别出已知化学品，建议直接输入产品名称查询。';
+      document.getElementById('ai-confidence-text').textContent = '-';
+      document.getElementById('ai-confidence-fill').style.width = '0%';
+      document.getElementById('ai-safety-badge').textContent = '未知';
+      document.getElementById('ai-safety-badge').className = 'badge gray';
+      aiResult.style.display = 'block';
+      return;
+    }
     document.getElementById('ai-name').textContent = matched.name;
     document.getElementById('ai-category').textContent = matched.category;
     document.getElementById('ai-category-tag').textContent = matched.category;
