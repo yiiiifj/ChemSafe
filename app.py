@@ -109,6 +109,12 @@ PUBCHEM_NAME_MAP = {
     '乙醚': 'diethyl ether',
     '汽油': 'gasoline',
     '煤油': 'kerosene',
+    '阿司匹林': 'aspirin',
+    '乙酰水杨酸': 'aspirin',
+    '布洛芬': 'ibuprofen',
+    '对乙酰氨基酚': 'acetaminophen',
+    '扑热息痛': 'acetaminophen',
+    '水杨酸': 'salicylic acid',
 }
 
 
