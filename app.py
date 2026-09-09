@@ -856,11 +856,33 @@ def save_history():
     return jsonify({'success': True, 'message': '保存成功'})
 
 
+@app.route('/api/history/<int:user_id>/<hist_type>', methods=['DELETE'])
+@jwt_required()
+def clear_history(user_id, hist_type):
+    """清空某类历史记录"""
+    current_user = get_jwt_identity()
+    if str(user_id) != current_user:
+        return jsonify({'success': False, 'message': '无权操作'}), 403
+    histories = read_json(HISTORIES_FILE)
+    user_id_str = str(user_id)
+    if user_id_str in histories and hist_type in histories[user_id_str]:
+        histories[user_id_str][hist_type] = []
+        write_json(HISTORIES_FILE, histories)
+    return jsonify({'success': True, 'message': '已清空'})
+
+
 def _match_chemical_by_text(text, chemicals):
     """根据文本匹配化学品名称或别名，返回最佳匹配"""
+    result = _match_chemical_by_text_with_info(text, chemicals)
+    return result['chemical']
+
+
+def _match_chemical_by_text_with_info(text, chemicals):
+    """根据文本匹配化学品名称或别名，返回匹配结果及质量信息"""
     text = text.lower()
     best = None
     best_len = 0
+    best_candidate = ''
     for c in chemicals:
         candidates = [c['name'].lower()]
         alias = c.get('alias', '')
@@ -870,7 +892,26 @@ def _match_chemical_by_text(text, chemicals):
             if candidate and candidate in text and len(candidate) > best_len:
                 best = c
                 best_len = len(candidate)
-    return best
+                best_candidate = candidate
+    # 匹配质量：匹配词长度 / 文本长度，最高 1
+    quality = min(1.0, best_len / max(len(text), 1)) if best else 0
+    return {
+        'chemical': best,
+        'matched_candidate': best_candidate,
+        'match_len': best_len,
+        'quality': quality
+    }
+
+
+def _calc_upload_confidence(source, quality):
+    """根据识别来源和匹配质量计算确定性置信度（同图同值）"""
+    if source == 'ocr':
+        # OCR 基础 82，质量越高越接近 97
+        return round(82 + quality * 15, 1)
+    if source == 'filename':
+        # 文件名基础 62，质量越高越接近 82
+        return round(62 + quality * 20, 1)
+    return 50.0
 
 
 @app.route('/api/upload', methods=['POST'])
@@ -883,6 +924,7 @@ def upload_image():
     chemicals = get_chemicals_data().get('chemicals', [])
     matched = None
     source = 'none'
+    quality = 0
 
     # 1. 优先用 OCR 识别图片中的文字（最准确）
     if PYTESSERACT_AVAILABLE:
@@ -896,17 +938,21 @@ def upload_image():
             ocr_text = pytesseract.image_to_string(image, lang='chi_sim+eng')
             os.unlink(tmp_path)
             if ocr_text.strip():
-                matched = _match_chemical_by_text(ocr_text, chemicals)
-                if matched:
+                info = _match_chemical_by_text_with_info(ocr_text, chemicals)
+                if info['chemical']:
+                    matched = info['chemical']
                     source = 'ocr'
+                    quality = info['quality']
         except Exception as e:
             print(f'OCR 识别失败: {e}')
 
     # 2. OCR 未命中时回退到文件名匹配
     if not matched:
-        matched = _match_chemical_by_text(filename, chemicals)
-        if matched:
+        info = _match_chemical_by_text_with_info(filename, chemicals)
+        if info['chemical']:
+            matched = info['chemical']
             source = 'filename'
+            quality = info['quality']
 
     # 3. 仍未命中则返回识别失败，不再随机返回
     if not matched:
@@ -918,7 +964,7 @@ def upload_image():
             }
         })
 
-    confidence = round(82 + random.random() * 15, 1) if source == 'ocr' else round(60 + random.random() * 20, 1)
+    confidence = _calc_upload_confidence(source, quality)
     return jsonify({
         'success': True,
         'data': {

@@ -690,7 +690,15 @@
       <img id="image-preview" class="image-preview" alt="预览">
     </div>
 
-    <div id="ai-thinking" style="display:none;" class="thinking"><i class="fas fa-brain"></i> 正在分析图像特征 ...</div>
+    <div style="margin:1rem 0; padding:1rem; background:var(--card-bg); border-radius:12px; border:1px solid var(--border);">
+      <p style="font-size:0.85rem; color:var(--text-dim); margin-bottom:0.5rem;"><i class="fas fa-keyboard"></i> 或者手动输入产品名称：</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <input type="text" id="ai-text-input" placeholder="例如：84消毒液、洗洁精、阿司匹林" style="flex:1; min-width:200px; padding:0.6rem 0.8rem; border:1px solid var(--border); border-radius:8px; background:var(--input-bg); color:var(--text);">
+        <button class="upload-btn" id="ai-text-search"><i class="fas fa-search"></i> 识别</button>
+      </div>
+    </div>
+
+    <div id="ai-thinking" style="display:none;" class="thinking"><i class="fas fa-brain"></i> 正在分析 ...</div>
 
     <div id="ai-result" class="result-box" style="display:none;">
       <div class="flex" style="justify-content:space-between;">
@@ -922,11 +930,7 @@
   async function clearHistory(type) {
     const user = getCurrentUser();
     if (!user) return;
-    await apiFetch('/history', {
-      method: 'POST',
-      body: { userId: user.id, type, content: '' }
-    });
-    // 后端暂无清空接口，这里通过覆盖为空列表实现
+    await apiFetch(`/history/${user.id}/${type}`, { method: 'DELETE' });
     renderHistory(type);
   }
 
@@ -1177,6 +1181,57 @@
 
   document.getElementById('feedback-good').addEventListener('click', () => alert('感谢反馈！AI将记录此结果作为正样本。'));
   document.getElementById('feedback-bad').addEventListener('click', () => alert('感谢反馈！AI将优化识别模型。'));
+
+  // 手动输入名称识别
+  async function recognizeByName(name) {
+    const aiResult = document.getElementById('ai-result');
+    const aiThinking = document.getElementById('ai-thinking');
+    aiThinking.style.display = 'inline-flex';
+    const res = await apiFetch('/chemicals/resolve', {
+      method: 'POST',
+      body: { name: name.trim() }
+    });
+    aiThinking.style.display = 'none';
+    if (!res.success) {
+      alert(res.message || '查询失败');
+      return;
+    }
+    if (!res.matched) {
+      document.getElementById('ai-name').textContent = '未识别';
+      document.getElementById('ai-category').textContent = '-';
+      document.getElementById('ai-category-tag').textContent = '未识别';
+      document.getElementById('ai-tip').textContent = '未能识别该化学品，建议检查名称或拍照上传。';
+      document.getElementById('ai-confidence-text').textContent = '-';
+      document.getElementById('ai-confidence-fill').style.width = '0%';
+      document.getElementById('ai-safety-badge').textContent = '未知';
+      document.getElementById('ai-safety-badge').className = 'badge gray';
+      aiResult.style.display = 'block';
+      return;
+    }
+    // 本地命中或 PubChem 命中均有 data
+    const data = res.data || res;
+    document.getElementById('ai-name').textContent = res.matched || data.name;
+    document.getElementById('ai-category').textContent = data.category || '化学品';
+    document.getElementById('ai-category-tag').textContent = data.category || '化学品';
+    document.getElementById('ai-tip').textContent = '⚠️ ' + (data.tip || res.advice || '暂无特别提示');
+    document.getElementById('ai-confidence-text').textContent = (data.confidence || '—') + (typeof data.confidence === 'number' ? '%' : '');
+    document.getElementById('ai-confidence-fill').style.width = (typeof data.confidence === 'number' ? data.confidence + '%' : '0%');
+    document.getElementById('ai-safety-badge').textContent = data.safety || '未知';
+    document.getElementById('ai-safety-badge').className = 'badge ' + (data.color || 'gray');
+    aiResult.style.display = 'block';
+    saveHistory('ai', res.matched || data.name);
+  }
+
+  const aiTextInput = document.getElementById('ai-text-input');
+  const aiTextSearch = document.getElementById('ai-text-search');
+  aiTextSearch.addEventListener('click', () => {
+    const name = aiTextInput.value.trim();
+    if (!name) return;
+    recognizeByName(name);
+  });
+  aiTextInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') aiTextSearch.click();
+  });
 
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     const voiceAI = document.getElementById('voice-trigger-ai');
