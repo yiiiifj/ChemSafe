@@ -928,15 +928,17 @@ def upload_image():
 
     # 1. 优先用 OCR 识别图片中的文字（最准确）
     if PYTESSERACT_AVAILABLE:
+        tmp_path = None
         try:
             ext = os.path.splitext(filename)[1] or '.jpg'
             with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
                 file.save(tmp.name)
                 tmp_path = tmp.name
             image = Image.open(tmp_path)
+            # 对超大图进行缩放，加快 OCR、降低内存占用和超时概率
+            image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
             # 中英文混合识别
             ocr_text = pytesseract.image_to_string(image, lang='chi_sim+eng')
-            os.unlink(tmp_path)
             if ocr_text.strip():
                 info = _match_chemical_by_text_with_info(ocr_text, chemicals)
                 if info['chemical']:
@@ -945,6 +947,12 @@ def upload_image():
                     quality = info['quality']
         except Exception as e:
             print(f'OCR 识别失败: {e}')
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
 
     # 2. OCR 未命中时回退到文件名匹配
     if not matched:
@@ -1119,6 +1127,73 @@ def chat():
     return jsonify({
         'success': True,
         'data': {'reply': reply, 'source': source}
+    })
+
+
+@app.route('/api/chat/product', methods=['POST'])
+def chat_about_product():
+    """针对已识别化学品进行 AI 问答"""
+    data = request.json
+    product = data.get('product', '').strip()
+    question = data.get('question', '').strip()
+    if not product or not question:
+        return jsonify({'success': False, 'message': '请提供产品名称和问题'}), 400
+
+    chemicals = get_chemicals_data().get('chemicals', [])
+    chemical = next(
+        (c for c in chemicals
+         if c['name'] == product or product in c.get('alias', '').split()),
+        None
+    )
+
+    context_lines = [f'产品名称：{product}']
+    if chemical:
+        context_lines.extend([
+            f'类别：{chemical.get("category", "未知")}',
+            f'安全等级：{chemical.get("safety", "未知")}',
+            f'使用建议：{chemical.get("tip", "无")}'
+        ])
+    else:
+        # 尝试 PubChem 补全信息
+        resolved = resolve_chemical(product, use_pubchem=True)
+        if resolved and resolved.lower() != product.lower():
+            context_lines.append(f'英文名/PubChem：{resolved}')
+
+    context = '\n'.join(context_lines)
+
+    if DEEPSEEK_API_KEY:
+        messages = [
+            {
+                'role': 'system',
+                'content': (
+                    '你是 ChemSafe 的家庭化学品安全智能助手"小安"。'
+                    '用户正在询问一个已识别的化学品，请基于下面提供的产品信息回答其功效、'
+                    '安全性、使用方法、混用禁忌、注意事项等问题。回答简洁、准确、有安全意识，'
+                    '不确定时明确说明，不要编造。'
+                )
+            },
+            {
+                'role': 'user',
+                'content': f'{context}\n\n用户问题：{question}'
+            }
+        ]
+        reply, err = deepseek_chat(messages, temperature=0.6, max_tokens=800)
+        if reply:
+            return jsonify({
+                'success': True,
+                'data': {'reply': reply, 'source': 'deepseek'}
+            })
+        print(f'DeepSeek 产品问答失败，回退本地: {err}')
+
+    # 本地回退
+    fallback = (
+        f'关于 {product} 的已知信息：\n{context}\n\n'
+        f'你的问题是：{question}\n'
+        '当前 AI 服务暂不可用，建议参考产品说明书或咨询专业人士。'
+    )
+    return jsonify({
+        'success': True,
+        'data': {'reply': fallback, 'source': 'local'}
     })
 
 

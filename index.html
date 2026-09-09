@@ -717,6 +717,16 @@
         <button class="voice-btn" style="color:var(--red);border-color:#fecaca;" id="feedback-bad"><i class="fas fa-thumbs-down"></i> 识别有误</button>
         <span style="font-size:0.75rem; color:var(--text-light);"><i class="fas fa-heart"></i> 反馈将帮助模型迭代</span>
       </div>
+
+      <!-- 识别后问小安 -->
+      <div style="margin-top:16px; padding:12px; background:rgba(20,184,166,0.06); border-radius:10px; border:1px solid var(--border);">
+        <p style="font-size:0.85rem; color:var(--text-dim); margin-bottom:8px;"><i class="fas fa-robot" style="color:var(--primary);"></i> 对识别结果有疑问？问小安：</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <input type="text" id="ai-follow-up" placeholder="例如：这个能跟酒精一起用吗？功效是真的吗？" style="flex:1; min-width:200px; padding:0.55rem 0.8rem; border:1px solid var(--border); border-radius:8px; background:var(--input-bg); color:var(--text); font-size:0.9rem;">
+          <button class="upload-btn" id="ai-follow-up-btn" style="padding:0.55rem 1rem;"><i class="fas fa-paper-plane"></i> 问小安</button>
+        </div>
+        <div id="ai-follow-up-result" style="display:none; margin-top:10px; padding:10px; background:var(--card-bg); border-radius:8px; font-size:0.9rem; line-height:1.6; color:var(--text);"></div>
+      </div>
     </div>
 
     <div class="history-list">
@@ -1231,6 +1241,38 @@
   });
   aiTextInput.addEventListener('keypress', (e) => {
     if (e.key === 'Enter') aiTextSearch.click();
+  });
+
+  // 识别后问小安
+  const aiFollowUp = document.getElementById('ai-follow-up');
+  const aiFollowUpBtn = document.getElementById('ai-follow-up-btn');
+  const aiFollowUpResult = document.getElementById('ai-follow-up-result');
+
+  aiFollowUpBtn.addEventListener('click', async () => {
+    const product = document.getElementById('ai-name').textContent.trim();
+    const question = aiFollowUp.value.trim();
+    if (!question) return;
+    if (product === '未识别' || !product) {
+      alert('请先成功识别出一个化学品再提问。');
+      return;
+    }
+    aiFollowUpBtn.disabled = true;
+    aiFollowUpBtn.innerHTML = '<span class="loading-spinner"></span> 思考中...';
+    const res = await apiFetch('/chat/product', {
+      method: 'POST',
+      body: { product, question }
+    });
+    aiFollowUpBtn.disabled = false;
+    aiFollowUpBtn.innerHTML = '<i class="fas fa-paper-plane"></i> 问小安';
+    if (!res.success) {
+      aiFollowUpResult.textContent = res.message || '回答失败';
+    } else {
+      aiFollowUpResult.textContent = res.data.reply;
+    }
+    aiFollowUpResult.style.display = 'block';
+  });
+  aiFollowUp.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') aiFollowUpBtn.click();
   });
 
   if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
