@@ -26,4 +26,7 @@ COPY . .
 
 # workers 固定为 1：数据层是同目录 JSON 文件，进程内的写锁无法跨进程生效，
 # 多 worker 并发写会互相覆盖。要扩容需先把存储换成数据库。
-CMD gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 120
+#
+# timeout 放到 300 秒：OCR 在免费实例的受限 CPU 上比本地慢一个数量级
+# （本地约 3 秒，线上首次上传实测 83 秒），必须留足余量，否则会被 worker 超时掐断（502）。
+CMD gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 300 --graceful-timeout 30

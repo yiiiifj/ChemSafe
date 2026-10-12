@@ -1392,6 +1392,30 @@ def _get_rapidocr_engine():
     return _rapidocr_engine
 
 
+def _warm_up_ocr_async():
+    """启动后在后台线程预热 OCR 引擎。
+
+    为什么需要：模型加载只在第一次识别时才发生。本地只要 0.6 秒，但在免费实例这种
+    受限 CPU 上会拖到几十秒，叠加识别本身耗时后，**第一次上传会慢到接近超时阈值**
+    （实测线上首次上传 83 秒，worker 超时是 120 秒）。把这段成本挪到启动阶段后，
+    第一个用户的等待时间就只剩下识别本身。
+    """
+    if not RAPIDOCR_AVAILABLE or os.getenv('OCR_WARMUP', '1') != '1':
+        return
+
+    def _run():
+        try:
+            _get_rapidocr_engine()
+            print('[warmup] OCR 引擎预热完成')
+        except Exception as e:
+            print(f'[warmup] OCR 引擎预热失败（不影响服务启动）: {e}')
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+_warm_up_ocr_async()
+
+
 # OCR 前的图片最长边上限。手机照片常有 3000~4000px，直接送入 OCR 会让内存和耗时
 # 随像素数急剧上升（在 512MB 的免费实例上可能直接把进程打挂，表现为 502）。
 OCR_MAX_SIDE = int(os.getenv('OCR_MAX_SIDE', '1280'))
