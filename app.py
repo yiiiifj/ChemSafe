@@ -5,6 +5,7 @@ from datetime import timedelta, datetime
 from dotenv import load_dotenv
 import json
 import os
+import re
 import sys
 import bcrypt
 import random
@@ -439,45 +440,87 @@ def _pick_pubchem_display_name(pub, preferred=None):
     return best
 
 
+def _chemical_candidates(c):
+    """某个化学品的全部可匹配字符串：名称 + 所有别名"""
+    out = [c['name']]
+    alias = c.get('alias') or ''
+    out.extend(a for a in alias.split() if a)
+    return out
+
+
+def _candidate_collisions(candidate, chemicals, owner_name):
+    """候选词的"碰撞数"：有多少个**其他**化学品的名称包含它。
+
+    数字越小越专属。例："84" 只与「84消毒片」相撞（=1），
+    而 "消毒液" 与「含氯消毒液」「消毒液喷雾」都相撞（=2）。
+    用于在多个候选同时命中时择优——避免泛词抢答。
+    """
+    cand = candidate.lower()
+    return sum(1 for x in chemicals
+               if x['name'] != owner_name and cand in x['name'].lower())
+
+
 def resolve_chemical(input_name, use_pubchem=True):
-    """根据名称或别名解析出标准化学品名称；本地未命中时可查询 PubChem"""
+    """根据名称或别名解析出标准化学品名称；本地未命中时可查询 PubChem。
+
+    核心原则：**宁可返回 None，也不要猜错**。
+    安全提示是按化学品给的，猜错等于给出错误的安全建议，比"未识别"危险得多。
+    因此对"类别词""泛词""被多个化学品共用的别名"一律返回 None，让前端提示用户说清楚。
+    """
     if not input_name:
         return None
     q = input_name.lower().strip()
+    if not q:
+        return None
     chemicals = get_chemicals_data().get('chemicals', [])
+    if not chemicals:
+        return None
 
-    # 1. 完全匹配名称
+    # 1. 名称精确匹配
     for c in chemicals:
         if c['name'].lower() == q:
             return c['name']
 
-    # 2. 别名精确匹配（优先，避免“84”先命中“84消毒片”）
-    for c in chemicals:
-        alias = c.get('alias', '')
-        if not alias:
-            continue
-        for a in alias.split():
-            al = a.lower().strip()
-            if al and al == q:
-                return c['name']
+    # 2. 类别词不解析成具体产品（"清洁剂""消毒液"是类别，不是某个产品）
+    categories = {c['category'].lower() for c in chemicals if c.get('category')}
+    if q in categories:
+        return None
 
-    # 3. 名称包含
-    for c in chemicals:
-        name_l = c['name'].lower()
-        if name_l in q or q in name_l:
-            return c['name']
+    # 3. 别名精确匹配：必须唯一
+    alias_hits = {c['name'] for c in chemicals
+                  if any(a.lower().strip() == q for a in _chemical_candidates(c)[1:])}
+    if len(alias_hits) == 1:
+        return next(iter(alias_hits))
+    if len(alias_hits) > 1:
+        return None
 
-    # 4. 别名包含/被包含
+    # 4. 模糊匹配（包含关系）。太短的输入不猜：一个"水"字会同时命中"漂白水/双氧水/氨水"
+    if len(q) < 2:
+        return None
+
+    # 若输入的词出现在 3 个以上化学品的名称里，说明它太泛（如"清洁剂"），不做名称包含匹配
+    name_contains = [c['name'] for c in chemicals if q in c['name'].lower()]
+    allow_name_contains = len(name_contains) < 3
+
+    scored = []
     for c in chemicals:
-        alias = c.get('alias', '')
-        if not alias:
-            continue
-        for a in alias.split():
-            al = a.lower().strip()
-            if not al:
+        for cand in _chemical_candidates(c):
+            cl = cand.lower().strip()
+            if not cl or cl == q:
                 continue
-            if al in q or q in al:
-                return c['name']
+            if not (cl in q or q in cl):
+                continue
+            # q in name 方向若被判为"过泛"，跳过该候选
+            if not allow_name_contains and cl == c['name'].lower() and q in cl:
+                continue
+            scored.append((_candidate_collisions(cl, chemicals, c['name']), -len(cl), c['name']))
+
+    if scored:
+        scored.sort()
+        best_key = scored[0][:2]
+        winners = {name for coll, neglen, name in scored if (coll, neglen) == best_key}
+        # 最优候选并列时说明存在歧义 —— 不猜
+        return next(iter(winners)) if len(winners) == 1 else None
 
     # 5. PubChem 兜底（英文/化学名）
     if use_pubchem:
@@ -1114,7 +1157,7 @@ def get_history(user_id, hist_type):
 @app.route('/api/history', methods=['POST'])
 @jwt_required()
 def save_history():
-    data = request.json
+    data = request.get_json(silent=True) or {}
     user_id = data.get('userId')
     hist_type = data.get('type')
     content = data.get('content')
@@ -1125,8 +1168,9 @@ def save_history():
 
     if hist_type not in VALID_HIST_TYPES:
         return jsonify({'success': False, 'message': '无效的记录类型'}), 400
-    if content is None:
+    if not isinstance(content, str) or not content.strip():
         return jsonify({'success': False, 'message': '缺少记录内容'}), 400
+    content = content.strip()[:200]  # 限长，避免客户端塞入超大字符串
 
     histories = read_json(HISTORIES_FILE)
     user_id_str = str(user_id)
@@ -1264,23 +1308,60 @@ def _match_chemical_by_text(text, chemicals):
 
 
 def _match_chemical_by_text_with_info(text, chemicals):
-    """根据文本匹配化学品名称或别名，返回匹配结果及质量信息"""
-    text = text.lower()
+    """从一段文本（OCR 输出 / 视觉模型输出 / 文件名）中匹配化学品。
+
+    择优顺序：候选正好是该化学品名称 > 碰撞数少（越专属）> 匹配更长。
+    例如 OCR 把「84消毒液」读成 "84 ... 消毒液" 时，"84"（只与「84消毒片」相撞）
+    会胜过泛词 "消毒液"（与「含氯消毒液」「消毒液喷雾」都相撞），从而给出正确结果。
+    """
+    # OCR 常把产品名按行切断，先去掉全部空白再匹配："84\n消毒液" -> "84消毒液"
+    text_flat = re.sub(r'\s+', '', (text or '').lower())
     best = None
     best_len = 0
     best_candidate = ''
+    best_collide = None
+    best_is_name = False
+
     for c in chemicals:
-        candidates = [c['name'].lower()]
-        alias = c.get('alias', '')
-        if alias:
-            candidates.extend(a.lower().strip() for a in alias.split() if a.strip())
-        for candidate in candidates:
-            if candidate and candidate in text and len(candidate) > best_len:
+        for candidate in _chemical_candidates(c):
+            cand = re.sub(r'\s+', '', candidate.lower())
+            if not cand or cand not in text_flat:
+                continue
+            is_name = (cand == c['name'].lower())
+            collide = _candidate_collisions(cand, chemicals, c['name'])
+            better = False
+            if best is None:
+                better = True
+            elif is_name != best_is_name:
+                better = is_name
+            elif collide != best_collide:
+                better = collide < best_collide
+            elif len(cand) > best_len:
+                better = True
+            if better:
                 best = c
-                best_len = len(candidate)
+                best_len = len(cand)
                 best_candidate = candidate
-    # 匹配质量：匹配词长度 / 文本长度，最高 1
-    quality = min(1.0, best_len / max(len(text), 1)) if best else 0
+                best_collide = collide
+                best_is_name = is_name
+
+    # 证据强度（0~1）：取决于命中的候选词有多具体，而不是它出现在多长的文本里
+    # （视觉模型常在名称后面补一句说明，用"长度占比"会无端压低可信度）
+    if best is None:
+        quality = 0.0
+    else:
+        if best_is_name:
+            quality = 0.90
+        elif best_len >= 4:
+            quality = 0.80
+        elif best_len == 3:
+            quality = 0.65
+        else:
+            quality = 0.40          # 两字符的短别名，证据较弱
+        if best_collide == 0:
+            quality = min(1.0, quality + 0.10)    # 专属词，加分
+        elif best_collide >= 2:
+            quality = max(0.15, quality - 0.30)   # 泛词，明显减分
     return {
         'chemical': best,
         'matched_candidate': best_candidate,
@@ -1290,17 +1371,14 @@ def _match_chemical_by_text_with_info(text, chemicals):
 
 
 def _calc_upload_confidence(source, quality):
-    """根据识别来源和匹配质量计算确定性置信度（同图同值）"""
-    if source == 'vision':
-        # 视觉 API 基础 85，质量越高越接近 98
-        return round(85 + quality * 13, 1)
-    if source == 'ocr':
-        # OCR 基础 82，质量越高越接近 97
-        return round(82 + quality * 15, 1)
-    if source == 'filename':
-        # 文件名基础 62，质量越高越接近 82
-        return round(62 + quality * 20, 1)
-    return 50.0
+    """根据识别来源和匹配证据强度计算置信度（同图同值，不含随机）。
+
+    用**乘性**模型而不是简单相加：来源基础分再高，只要匹配证据弱，
+    最终置信度就必须明显下降——否则 OCR 只匹配到两个字符也会显示 80%+。
+    """
+    base = {'vision': 0.95, 'ocr': 0.85, 'filename': 0.6}.get(source, 0.5)
+    q = min(max(quality, 0.0), 1.0)
+    return round(base * (0.4 + 0.6 * q) * 100, 1)
 
 
 _rapidocr_engine = None

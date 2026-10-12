@@ -1670,23 +1670,6 @@
   }
 
   // ===== 混用禁忌 =====
-  function resolveChemical(input) {
-    if (!input) return null;
-    const q = input.toLowerCase().trim();
-    let match = CHEMICALS.find(c => c.name.toLowerCase() === q);
-    if (match) return match.name;
-    match = CHEMICALS.find(c => c.name.toLowerCase().includes(q) || q.includes(c.name.toLowerCase()));
-    if (match) return match.name;
-    match = CHEMICALS.find(c => {
-      if (!c.alias) return false;
-      return c.alias.split(/\s+/).some(a => {
-        const al = a.toLowerCase();
-        return al === q || al.includes(q) || q.includes(al);
-      });
-    });
-    return match ? match.name : null;
-  }
-
   function initMixPage() {
     document.getElementById('mix-input-hint').textContent = `已收录 ${CHEMICALS.length} 种常见化学品、${MIXING_RULES.length} 条禁忌组合，支持别名识别`;
 
