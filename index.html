@@ -724,6 +724,7 @@
       <div class="confidence-bar"><div class="confidence-fill" id="ai-confidence-fill" style="width:0%;"></div></div>
       <p id="ai-tip" class="tip-box"></p>
       <div class="evidence-box" id="ai-source"><i class="fas fa-robot"></i> 识别方式：-</div>
+      <div id="ai-extra-products" style="display:none; margin-top:10px; font-size:0.85rem; color:var(--text-dim);"></div>
       <div id="feedback-row" style="display:none; margin-top:12px; gap:10px; flex-wrap:wrap; align-items:center;">
         <button class="voice-btn" style="color:var(--green);border-color:#a7f3d0;" id="feedback-good"><i class="fas fa-thumbs-up"></i> 识别准确</button>
         <button class="voice-btn" style="color:var(--red);border-color:#fecaca;" id="feedback-bad"><i class="fas fa-thumbs-down"></i> 识别有误</button>
@@ -1413,10 +1414,25 @@
     el.innerHTML = `<i class="fas ${info.icon}"></i> 识别方式：${info.text}${extra}`;
   }
 
+  // 多产品同框：把其余命中结果展示成可点击的标签
+  function renderExtraProducts(products, currentName) {
+    const box = document.getElementById('ai-extra-products');
+    if (!box) return;
+    const others = (products || []).filter(p => p.name !== currentName);
+    if (!others.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    box.style.display = 'block';
+    box.innerHTML = `<i class="fas fa-images" style="color:var(--primary);"></i> 同框还识别出：` +
+      others.map(p => `<span class="tag extra-prod" data-name="${escapeHtml(p.name)}" style="cursor:pointer; margin:0 2px;">${escapeHtml(p.name)}</span>`).join('');
+    box.querySelectorAll('.extra-prod').forEach(el => {
+      el.addEventListener('click', () => recognizeByName(el.dataset.name));
+    });
+  }
+
   async function recognize(file) {
     fileNameDisplay.textContent = '已选择: ' + file.name;
     aiResult.style.display = 'none';
     resetFeedbackRow();
+    renderExtraProducts(null, null);
     aiThinking.style.display = 'inline-flex';
     uploadTrigger.disabled = true;
     uploadTrigger.innerHTML = '<span class="loading-spinner"></span> 识别中...';
@@ -1457,6 +1473,7 @@
     document.getElementById('ai-safety-badge').className = 'badge ' + matched.color;
     setSourceTag(matched.source, matched.ocr_engine);
     showFeedbackRow(matched.name, matched.source);
+    renderExtraProducts(matched.products, matched.name);
     aiResult.style.display = 'block';
     saveHistory('ai', matched.name);
   }
@@ -1516,6 +1533,7 @@
     const aiResult = document.getElementById('ai-result');
     const aiThinking = document.getElementById('ai-thinking');
     resetFeedbackRow();
+    renderExtraProducts(null, null);
     aiThinking.style.display = 'inline-flex';
     const res = await apiFetch('/chemicals/resolve', {
       method: 'POST',

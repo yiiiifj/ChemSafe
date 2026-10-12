@@ -1589,6 +1589,33 @@ def _resize_to_base64(file_storage, max_size=(1024, 1024), quality=85):
         return None
 
 
+def _parse_vision_names(text):
+    """把视觉模型返回的名称解析成列表。
+
+    模型被要求返回 JSON 数组（最多 3 个）；解析失败时退回按顿号/逗号/换行拆分。
+    支持多产品同框：一张照片里出现多个瓶子时不再只取一个。
+    """
+    if not text:
+        return []
+    t = re.sub(r'^```(?:json)?\s*|\s*```$', '', text.strip(), flags=re.S).strip()
+    try:
+        arr = json.loads(t)
+        if isinstance(arr, list):
+            names = [str(x).strip() for x in arr if str(x).strip()]
+        elif isinstance(arr, str) and arr.strip():
+            names = [arr.strip()]
+        else:
+            names = []
+    except Exception:
+        names = [p.strip().strip('。.，,"\'') for p in re.split(r'[、,，;；\n]+', t) if p.strip()]
+    seen, out = set(), []
+    for n in names:
+        if n and n not in seen:
+            seen.add(n)
+            out.append(n)
+    return out[:3]
+
+
 @app.route('/api/upload', methods=['POST'])
 @jwt_required()
 def upload_image():
@@ -1601,8 +1628,8 @@ def upload_image():
     matched = None
     source = 'none'
     quality = 0
-    vision_text = None
     ocr_engine = None
+    products = []   # 多产品同框时，全部命中结果（含第一个）
 
     # 1. 优先调用视觉模型识别标签内容（需配置 VISION_* 变量；未配置则直接走 OCR）
     if VISION_ENABLED:
@@ -1611,17 +1638,40 @@ def upload_image():
             if base64_image:
                 vision_text, err = vision_recognize(
                     base64_image,
-                    prompt='这是一张家庭化学品产品标签的照片。请识别并返回产品名称、主要成分或常见别名，只输出最可能的名称，不要解释。例如：84消毒液、洁厕灵、医用酒精、洗洁精。',
-                    max_tokens=200
+                    prompt='这是一张家庭化学品的照片，图中可能有一个或多个产品。'
+                           '请识别图中所有化学品/清洁用品的名称，以 JSON 数组返回，最多 3 个，'
+                           '例如 ["84消毒液"] 或 ["84消毒液","洁厕灵"]。只输出 JSON 数组，不要解释。',
+                    max_tokens=300
                 )
                 if err:
                     print(f'Vision API 调用失败: {err}')
                 elif vision_text:
-                    info = _match_chemical_by_text_with_info(vision_text, chemicals)
-                    if info['chemical']:
-                        matched = info['chemical']
+                    seen_groups = set()
+                    for nm in _parse_vision_names(vision_text):
+                        info = _match_chemical_by_text_with_info(nm, chemicals)
+                        if not info['chemical']:
+                            continue
+                        name = info['chemical']['name']
+                        gid = _equivalence_group_id(name)
+                        if gid:
+                            if gid in seen_groups:
+                                continue
+                            seen_groups.add(gid)
+                        elif name in [p['name'] for p in products]:
+                            continue
+                        products.append({
+                            **info['chemical'],
+                            'confidence': _calc_upload_confidence('vision', info['quality']),
+                            'source': 'vision'
+                        })
+                    if products:
+                        matched = next(x for x in chemicals if x['name'] == products[0]['name'])
                         source = 'vision'
-                        quality = info['quality']
+                        # 第一个产品的质量用于整体置信度
+                        q0 = _match_chemical_by_text_with_info(
+                            _parse_vision_names(vision_text)[0] if _parse_vision_names(vision_text) else '',
+                            chemicals)
+                        quality = q0['quality']
         except Exception as e:
             print(f'Vision 识别异常: {e}')
 
@@ -1676,16 +1726,17 @@ def upload_image():
         })
 
     confidence = _calc_upload_confidence(source, quality)
-    return jsonify({
-        'success': True,
-        'data': {
-            **matched,
-            'recognized': True,
-            'confidence': confidence,
-            'source': source,
-            'ocr_engine': ocr_engine if source == 'ocr' else None
-        }
-    })
+    resp = {
+        **matched,
+        'recognized': True,
+        'confidence': confidence,
+        'source': source,
+        'ocr_engine': ocr_engine if source == 'ocr' else None
+    }
+    # 多产品同框：附上全部命中结果（第一个与顶层字段一致）
+    if len(products) > 1:
+        resp['products'] = products
+    return jsonify({'success': True, 'data': resp})
 
 
 # 谣言本地匹配阈值：>= 前者直接采用本地结论；>= 后者仅作为 AI 判断的提示
