@@ -180,6 +180,10 @@
     .user-info i.fa-user-circle { color: var(--primary); font-size: 1.25rem; }
     .logout-btn { background: none; border: none; color: var(--red); cursor: pointer; font-weight: 700; font-size: 0.78rem; padding: 0.2rem 0.5rem; border-radius: 8px; transition: 0.2s; }
     .logout-btn:hover { background: var(--red-soft); }
+    .settings-btn { background: none; border: none; color: var(--text-light); cursor: pointer; font-size: 0.85rem; padding: 0.2rem 0.4rem; border-radius: 8px; transition: 0.2s; }
+    .settings-btn:hover { color: var(--primary-dark); background: var(--primary-soft); }
+    .forgot-link { color: var(--primary-dark); text-decoration: underline; font-weight: 600; margin-left: 0.3rem; }
+    .forgot-link:hover { color: var(--primary); }
 
     .page-section { display: none; animation: fadeUp 0.35s ease; }
     .page-section.active { display: block; }
@@ -575,6 +579,13 @@
           </div>
         </div>
         <div class="form-group">
+          <label>邮箱（可选，用于找回密码）</label>
+          <div class="input-wrap">
+            <i class="fas fa-envelope"></i>
+            <input type="email" id="reg-email" placeholder="example@email.com">
+          </div>
+        </div>
+        <div class="form-group">
           <label>密码</label>
           <div class="input-wrap">
             <i class="fas fa-lock"></i>
@@ -613,6 +624,7 @@
       <div class="user-info">
         <i class="fas fa-user-circle"></i>
         <span id="username-display">用户</span>
+        <button class="settings-btn" id="settings-btn" title="账号设置"><i class="fas fa-cog"></i></button>
         <button class="logout-btn" id="logout-btn"><i class="fas fa-sign-out-alt"></i> 退出</button>
       </div>
     </div>
@@ -621,12 +633,12 @@
   <!-- 首页 -->
   <section id="page-home" class="page-section active">
     <div class="hero-banner">
-      <img src="assets/image.png" alt="" class="hero-flask" style="opacity:0.08;">
+      <img src="assets/image.png" alt="" class="hero-flask" style="opacity:0.08; width:150px; height:150px;">
       <h1>家庭化学品安全<br><em>智能守护平台</em></h1>
       <p>基于多模态 AI 的化学品识别与风险预警系统，帮助每个家庭避开清洁剂混用中毒、误食、误存等常见化学伤害。</p>
       <div class="flex" style="margin-top:1rem;">
         <span class="ai-avatar"><span class="status-dot"></span> 小安 · AI 安全助手在线</span>
-        <span class="tag"><i class="fas fa-microchip"></i> 模型准确率 <span id="accuracy-display">87.3</span>%</span>
+        <span class="tag"><i class="fas fa-layer-group"></i> 识别三级兜底 <span id="accuracy-display">视觉 · OCR · 文件名</span></span>
       </div>
     </div>
 
@@ -659,10 +671,10 @@
     </div>
 
     <div class="ai-panel">
-      <div class="ai-stat"><div class="num" id="stat-images">1,247</div><div class="label">识别次数</div></div>
-      <div class="ai-stat"><div class="num" id="stat-rumors">836</div><div class="label">辟谣次数</div></div>
-      <div class="ai-stat"><div class="num" id="stat-chemicals">16</div><div class="label">收录化学品</div></div>
-      <div class="ai-stat"><div class="num" id="stat-satisfaction">92.4%</div><div class="label">用户满意度</div></div>
+      <div class="ai-stat"><div class="num" id="stat-chemicals">60</div><div class="label">收录化学品</div></div>
+      <div class="ai-stat"><div class="num" id="stat-aliases">187</div><div class="label">支持别名</div></div>
+      <div class="ai-stat"><div class="num" id="stat-rules">55</div><div class="label">混用禁忌规则</div></div>
+      <div class="ai-stat"><div class="num" id="stat-rumors">10</div><div class="label">辟谣条目</div></div>
     </div>
 
     <div class="daily-tip">
@@ -711,11 +723,11 @@
       </div>
       <div class="confidence-bar"><div class="confidence-fill" id="ai-confidence-fill" style="width:0%;"></div></div>
       <p id="ai-tip" class="tip-box"></p>
-      <div class="evidence-box"><i class="fas fa-robot"></i> 推理依据：基于上传内容特征匹配化学品库</div>
-      <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <div class="evidence-box" id="ai-source"><i class="fas fa-robot"></i> 识别方式：-</div>
+      <div id="feedback-row" style="display:none; margin-top:12px; gap:10px; flex-wrap:wrap; align-items:center;">
         <button class="voice-btn" style="color:var(--green);border-color:#a7f3d0;" id="feedback-good"><i class="fas fa-thumbs-up"></i> 识别准确</button>
         <button class="voice-btn" style="color:var(--red);border-color:#fecaca;" id="feedback-bad"><i class="fas fa-thumbs-down"></i> 识别有误</button>
-        <span style="font-size:0.75rem; color:var(--text-light);"><i class="fas fa-heart"></i> 反馈将帮助模型迭代</span>
+        <span id="feedback-hint" style="font-size:0.75rem; color:var(--text-light);"><i class="fas fa-heart"></i> 反馈会记入后台统计</span>
       </div>
 
       <!-- 识别后问小安 -->
@@ -731,7 +743,7 @@
 
     <div class="history-list">
       <h4 style="margin-bottom:0.5rem; color:var(--text);"><i class="fas fa-history" style="color:var(--primary);"></i> 我的鉴别记录
-        <button class="clear-history-btn" onclick="clearHistory('ai')">清除</button>
+
       </h4>
       <div id="ai-history-container"><div class="history-item"><span style="color:var(--text-light);">暂无记录</span></div></div>
     </div>
@@ -758,11 +770,12 @@
     </div>
 
     <h3 class="section-title" style="font-size:1.15rem;"><i class="fas fa-skull-crossbones"></i> 已知危险组合</h3>
+    <div class="flex" id="mix-filter-bar" style="gap:0.4rem; margin-bottom:0.9rem;"></div>
     <div class="rumor-list" id="mix-known-list"></div>
 
     <div class="history-list">
       <h4 style="margin-bottom:0.5rem; color:var(--text);"><i class="fas fa-history" style="color:var(--primary);"></i> 我的查询记录
-        <button class="clear-history-btn" onclick="clearHistory('mix')">清除</button>
+
       </h4>
       <div id="mix-history-container"><div class="history-item"><span style="color:var(--text-light);">暂无记录</span></div></div>
     </div>
@@ -787,7 +800,7 @@
 
     <div class="history-list">
       <h4 style="margin-bottom:0.5rem; color:var(--text);"><i class="fas fa-history" style="color:var(--primary);"></i> 我的鉴别记录
-        <button class="clear-history-btn" onclick="clearHistory('rumor')">清除</button>
+
       </h4>
       <div id="rumor-history-container"><div class="history-item"><span style="color:var(--text-light);">暂无记录</span></div></div>
     </div>
@@ -798,31 +811,34 @@
     <h2 class="section-title"><i class="fas fa-book-open"></i> 安全科普 <span class="tag">知识图谱</span></h2>
     <div class="flex" style="margin-bottom: 0.5rem;">
       <span class="ai-avatar"><i class="fas fa-robot"></i> 小安 · 知识库</span>
-      <span style="font-size:0.85rem; color:var(--text-dim);"><i class="fas fa-database"></i> 已收录 <span id="chemical-count">16</span> 种化学品</span>
+      <span style="font-size:0.85rem; color:var(--text-dim);"><i class="fas fa-database"></i> 已收录 <span id="chemical-count">60</span> 种化学品</span>
     </div>
 
     <div class="search-box">
-      <input type="text" id="safety-search" placeholder="搜索化学品名称、类别或关键词...">
+      <input type="text" id="safety-search" placeholder="搜索化学品名称或别名，例如 84、酒精、洁厕、漂白...">
       <button id="safety-search-btn"><i class="fas fa-search"></i> 搜索</button>
       <button id="safety-clear-btn" class="ghost"><i class="fas fa-times"></i> 清除</button>
     </div>
 
+    <div id="safety-result-info" style="display:none; margin:-0.3rem 0 0.9rem; padding:0.6rem 1rem; background:var(--card); border:1px solid var(--border); border-radius:var(--radius-sm); font-size:0.85rem; color:var(--text-dim);"></div>
+
     <div class="safety-grid" id="safety-grid"></div>
 
-    <div class="recommend-box">
-      <p style="display:flex; flex-wrap:wrap; align-items:center; gap:0.3rem;"><i class="fas fa-heart" style="color:var(--red);"></i> <strong style="color:var(--text);">AI 推荐：</strong>
-        <span class="tag" onclick="searchKeyword('漂白水')">漂白水</span>
+    <div class="recommend-box" id="safety-recommend">
+      <p style="display:flex; flex-wrap:wrap; align-items:center; gap:0.3rem;"><i class="fas fa-heart" style="color:var(--red);"></i> <strong style="color:var(--text);">试试这些（支持别名检索）：</strong>
+        <span class="tag" onclick="searchKeyword('84')">84</span>
         <span class="tag" onclick="searchKeyword('酒精')">酒精</span>
-        <span class="tag" onclick="searchKeyword('洁厕')">洁厕灵</span>
-        <span class="tag" onclick="searchKeyword('防晒')">防晒喷雾</span>
-        <span class="tag" onclick="searchKeyword('杀虫')">杀虫剂</span>
-        <span class="tag" onclick="searchKeyword('小苏打')">小苏打</span>
+        <span class="tag" onclick="searchKeyword('洁厕')">洁厕</span>
+        <span class="tag" onclick="searchKeyword('漂白')">漂白</span>
+        <span class="tag" onclick="searchKeyword('管道')">管道</span>
+        <span class="tag" onclick="searchKeyword('碘伏')">碘伏</span>
+        <span class="tag" onclick="searchKeyword('维生素')">维生素</span>
       </p>
     </div>
 
     <div class="history-list">
       <h4 style="margin-bottom:0.5rem; color:var(--text);"><i class="fas fa-history" style="color:var(--primary);"></i> 我的浏览记录
-        <button class="clear-history-btn" onclick="clearHistory('safety')">清除</button>
+
       </h4>
       <div id="safety-history-container"><div class="history-item"><span style="color:var(--text-light);">暂无记录</span></div></div>
     </div>
@@ -873,7 +889,17 @@
     }
     try {
       const res = await fetch(API_BASE + url, options);
-      return await res.json();
+      const data = await res.json();
+      // 登录态失效（401）时自动清理并回到登录页。
+      // 排除自身就会返回 401 的接口：登录/注册/找回密码/重置密码/verify。
+      const authFree = ['/login', '/register', '/forgot-password', '/reset-password', '/verify'];
+      if (res.status === 401 && token && !authFree.some(p => url.startsWith(p))) {
+        localStorage.removeItem('chem_token');
+        setCurrentUser(null);
+        alert('登录已过期，请重新登录');
+        location.reload();
+      }
+      return data;
     } catch (e) {
       return { success: false, message: '网络错误：' + e.message };
     }
@@ -884,16 +910,44 @@
   let RUMORS = [];
   let MIXING_RULES = [];
 
-  const SAFETY_CARDS = [
-    { category: "清洁剂", keywords: "洗洁精 洁厕灵 去污 除垢 漂白水 小苏打 管道疏通 玻璃清洁 洗衣液 地板清洁 厨房油污 柠檬酸 白醋", icon: "fa-spray-can",
-      taboo: "勿与酸性/含氯产品混用", storage: "阴凉干燥，远离火源", emergency: "溅入眼睛用大量清水冲洗", common: "洗洁精、洁厕灵、漂白水、小苏打、管道疏通剂" },
-    { category: "消毒液", keywords: "84 酒精 漂白 杀菌 消毒 含氯 双氧水 碘伏 季铵盐", icon: "fa-hand-sparkles",
-      taboo: "避免原液接触皮肤", storage: "避光，儿童不可及", emergency: "误食立即就医，勿催吐", common: "84消毒液、医用酒精、漂白水、双氧水" },
-    { category: "护肤品", keywords: "面霜 乳液 防晒 护肤 化妆品 卸妆 洗手液", icon: "fa-pump-soap",
-      taboo: "过敏测试，避免入眼", storage: "常温避光，注意保质期", emergency: "过敏停用，冷敷", common: "面霜、防晒喷雾、卸妆油、精华液" },
-    { category: "日用品", keywords: "空气清新剂 柔顺剂 杀虫剂 牙膏 清新剂 驱虫 花露水 风油精 染发剂 洗甲水 万能胶 油漆", icon: "fa-home",
-      taboo: "杀虫剂有毒，避免误食", storage: "阴凉处，远离食品", emergency: "误食杀虫剂立即就医", common: "空气清新剂、柔顺剂、杀虫剂、牙膏" }
-  ];
+  // 类别元信息：卡片本身由数据动态生成，这里只提供各类别的图标与通用建议。
+  // 注意：不要在这里硬编码类别列表，否则数据里新增类别会在科普页"消失"。
+  const CATEGORY_INFO = {
+    "清洁剂": { icon: "fa-spray-can",
+      taboo: "勿与酸性/含氯产品混用", storage: "阴凉干燥，远离火源", emergency: "溅入眼睛用大量清水冲洗" },
+    "消毒液": { icon: "fa-hand-sparkles",
+      taboo: "避免原液接触皮肤", storage: "避光，儿童不可及", emergency: "误食立即就医，勿催吐" },
+    "护肤品": { icon: "fa-pump-soap",
+      taboo: "先做过敏测试，避免入眼", storage: "常温避光，注意保质期", emergency: "过敏立即停用并冷敷" },
+    "日用品": { icon: "fa-home",
+      taboo: "杀虫剂等有毒，勿与食品混放", storage: "阴凉处，远离食品与儿童", emergency: "误食立即就医并携带包装" },
+    "药品": { icon: "fa-pills",
+      taboo: "遵医嘱，勿与其他药物随意同服", storage: "避光干燥，与食品分开存放", emergency: "误服立即就医并携带药盒" },
+    "保健品": { icon: "fa-capsules",
+      taboo: "按推荐剂量服用，不能替代药物", storage: "密封避光保存，注意有效期", emergency: "过量服用及时就医" }
+  };
+  const DEFAULT_CATEGORY_INFO = {
+    icon: "fa-flask",
+    taboo: "避免与其他化学品随意混用",
+    storage: "阴凉干燥处，远离火源与儿童",
+    emergency: "溅入眼睛用大量清水冲洗，误食立即就医"
+  };
+
+  function categoryInfo(category) {
+    return CATEGORY_INFO[category] || DEFAULT_CATEGORY_INFO;
+  }
+
+  function categoryIcon(category) {
+    return categoryInfo(category).icon;
+  }
+
+  // 危险等级 -> 展示样式
+  const LEVEL_STYLE = {
+    critical: { color: "var(--red)", badge: "red", icon: "fa-skull-crossbones", label: "剧毒/危险" },
+    warning: { color: "var(--amber)", badge: "yellow", icon: "fa-exclamation-triangle", label: "有害/注意" },
+    info: { color: "var(--primary)", badge: "green", icon: "fa-info-circle", label: "低危" },
+    safe: { color: "var(--green)", badge: "green", icon: "fa-check-circle", label: "安全" }
+  };
 
   const QUICK_QUESTIONS = [
     "84消毒液能和洁厕灵混用吗",
@@ -937,10 +991,10 @@
     renderHistory(type);
   }
 
-  async function clearHistory(type) {
+  async function deleteHistoryItem(type, index) {
     const user = getCurrentUser();
     if (!user) return;
-    await apiFetch(`/history/${user.id}/${type}`, { method: 'DELETE' });
+    await apiFetch(`/history/${user.id}/${type}/${index}`, { method: 'DELETE' });
     renderHistory(type);
   }
 
@@ -953,10 +1007,18 @@
     const list = res.success ? (res.data || []) : [];
     if (!list.length) { container.innerHTML = '<div class="history-item"><span style="color:var(--text-light);">暂无记录</span></div>'; return; }
     const icon = type === 'ai' ? 'fa-flask' : type === 'rumor' ? 'fa-comment' : type === 'mix' ? 'fa-vial' : 'fa-book';
-    container.innerHTML = list.map(item =>
-      `<div class="history-item">
-        <span><i class="fas ${icon}" style="color:var(--primary);"></i> ${escapeHtml(item.content)}</span>
-        <span style="color:var(--text-light);font-size:0.78rem;">${item.time}</span>
+    container.innerHTML = list.map((item, index) =>
+      `<div class="history-item" style="justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:8px; overflow:hidden;">
+          <i class="fas ${icon}" style="color:var(--primary); flex-shrink:0;"></i>
+          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.content)}</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
+          <span style="color:var(--text-light); font-size:0.78rem;">${item.time}</span>
+          <button class="delete-history-item" onclick="deleteHistoryItem('${type}', ${index})" title="删除" style="background:none; border:none; color:var(--red); cursor:pointer; font-size:0.85rem; padding:2px 6px; border-radius:4px;">
+            <i class="fas fa-trash-alt"></i>
+          </button>
+        </div>
       </div>`
     ).join('');
   }
@@ -974,6 +1036,10 @@
 
   function showMessage(text, type = 'error') {
     msgBox.textContent = text;
+    msgBox.className = 'message ' + type;
+  }
+  function showMessageHTML(html, type = 'error') {
+    msgBox.innerHTML = html;
     msgBox.className = 'message ' + type;
   }
   function hideMessage() { msgBox.className = 'message'; msgBox.textContent = ''; }
@@ -994,6 +1060,78 @@
   }
   tabLogin.addEventListener('click', () => switchTab(false));
   tabRegister.addEventListener('click', () => switchTab(true));
+
+  window.showForgotPasswordModal = function() {
+    const modalBox = document.getElementById('modal-box');
+    modalBox.innerHTML = `
+      <button class="modal-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
+      <h3><i class="fas fa-key"></i> 通过邮箱重置密码</h3>
+      <p style="color:var(--text-dim); font-size:0.85rem; margin-bottom:1rem;">输入账号绑定的邮箱，系统将发送重置链接（1小时内有效）。</p>
+      <div class="form-group">
+        <label>邮箱</label>
+        <div class="input-wrap">
+          <i class="fas fa-envelope"></i>
+          <input type="email" id="fp-email" placeholder="请输入绑定邮箱" required>
+        </div>
+      </div>
+      <button type="button" class="btn" id="fp-btn" onclick="submitForgotPassword()"><i class="fas fa-paper-plane"></i> 发送重置链接</button>`;
+    document.getElementById('modal-overlay').classList.add('show');
+    hideMessage();
+  };
+
+  window.submitForgotPassword = async function() {
+    const email = document.getElementById('fp-email').value.trim();
+    if (!email || !email.includes('@')) { alert('请输入有效邮箱'); return; }
+
+    const btn = document.getElementById('fp-btn');
+    setLoading(btn, true);
+    const res = await apiFetch('/forgot-password', { method: 'POST', body: { email } });
+    setLoading(btn, false, '<i class="fas fa-paper-plane"></i> 发送重置链接');
+    if (!res.success) { alert(res.message || '发送失败'); return; }
+    closeModal();
+    showMessage(res.message, 'success');
+  };
+
+  window.showResetPasswordModal = function(token) {
+    const modalBox = document.getElementById('modal-box');
+    modalBox.innerHTML = `
+      <button class="modal-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
+      <h3><i class="fas fa-lock"></i> 设置新密码</h3>
+      <p style="color:var(--text-dim); font-size:0.85rem; margin-bottom:1rem;">请输入新密码完成重置。</p>
+      <div class="form-group">
+        <label>新密码</label>
+        <div class="input-wrap">
+          <i class="fas fa-lock"></i>
+          <input type="password" id="rp-password" placeholder="至少6位" required minlength="6">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>确认新密码</label>
+        <div class="input-wrap">
+          <i class="fas fa-lock"></i>
+          <input type="password" id="rp-password2" placeholder="再次输入新密码" required minlength="6">
+        </div>
+      </div>
+      <button type="button" class="btn" id="rp-btn" onclick="submitResetPassword('${token}')"><i class="fas fa-check"></i> 确认重置</button>`;
+    document.getElementById('modal-overlay').classList.add('show');
+  };
+
+  window.submitResetPassword = async function(token) {
+    const password = document.getElementById('rp-password').value;
+    const password2 = document.getElementById('rp-password2').value;
+    if (!password) { alert('请填写新密码'); return; }
+    if (password.length < 6) { alert('新密码至少6位'); return; }
+    if (password !== password2) { alert('两次输入的密码不一致'); return; }
+
+    const btn = document.getElementById('rp-btn');
+    setLoading(btn, true);
+    const res = await apiFetch('/reset-password', { method: 'POST', body: { token, newPassword: password } });
+    setLoading(btn, false, '<i class="fas fa-check"></i> 确认重置');
+    if (!res.success) { alert(res.message || '重置失败'); return; }
+    closeModal();
+    showMessage('密码已重置，请用新密码登录', 'success');
+    switchTab(false);
+  };
 
   document.getElementById('reg-password').addEventListener('input', function() {
     const v = this.value;
@@ -1016,16 +1154,18 @@
   document.getElementById('register-form').addEventListener('submit', async function(e) {
     e.preventDefault();
     const username = document.getElementById('reg-username').value.trim();
+    const email = document.getElementById('reg-email').value.trim();
     const password = document.getElementById('reg-password').value;
     const password2 = document.getElementById('reg-password2').value;
     if (!username || !password) { showMessage('请填写昵称和密码'); return; }
     if (username.length < 2) { showMessage('昵称至少2个字符'); return; }
     if (password.length < 6) { showMessage('密码至少6位'); return; }
     if (password !== password2) { showMessage('两次输入的密码不一致'); return; }
+    if (email && !email.includes('@')) { showMessage('邮箱格式不正确'); return; }
 
     const btn = document.getElementById('register-btn');
     setLoading(btn, true);
-    const res = await apiFetch('/register', { method: 'POST', body: { username, password } });
+    const res = await apiFetch('/register', { method: 'POST', body: { username, email, password } });
     setLoading(btn, false, '<i class="fas fa-user-plus"></i> 创建账号');
     if (!res.success) { showMessage(res.message || '注册失败'); return; }
     setToken(res.token);
@@ -1043,7 +1183,10 @@
     setLoading(btn, true);
     const res = await apiFetch('/login', { method: 'POST', body: { username, password } });
     setLoading(btn, false, '<i class="fas fa-sign-in-alt"></i> 进入安全助手');
-    if (!res.success) { showMessage(res.message || '登录失败'); return; }
+    if (!res.success) {
+      showMessageHTML(`${escapeHtml(res.message || '登录失败')} <a href="#" class="forgot-link" onclick="showForgotPasswordModal(); return false;">忘记密码？</a>`);
+      return;
+    }
     setToken(res.token);
     setCurrentUser(res.user);
     showMessage('登录成功！正在进入...', 'success');
@@ -1082,6 +1225,70 @@
     hideMessage();
   });
 
+  document.getElementById('settings-btn').addEventListener('click', showAccountSettingsModal);
+
+  window.showAccountSettingsModal = function() {
+    const user = getCurrentUser();
+    if (!user) return;
+    const emailText = user.email ? escapeHtml(user.email) : '未绑定';
+    const modalBox = document.getElementById('modal-box');
+    modalBox.innerHTML = `
+      <button class="modal-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
+      <h3><i class="fas fa-user-cog"></i> 账号设置</h3>
+      <div style="margin:1rem 0; padding:1rem; background:var(--bg-soft); border-radius:var(--radius-sm);">
+        <p style="margin:0; color:var(--text-dim); font-size:0.85rem;">当前账号</p>
+        <p style="margin:0.3rem 0 0; font-weight:700; color:var(--text);">${escapeHtml(user.username)}</p>
+        <p style="margin:0.2rem 0 0; font-size:0.82rem; color:var(--text-light);"><i class="fas fa-envelope"></i> ${emailText}</p>
+      </div>
+      <p style="color:var(--red); font-size:0.85rem; margin-bottom:1rem;"><i class="fas fa-exclamation-triangle"></i> 注销后账号及所有历史记录将被永久删除，无法恢复。</p>
+      <button type="button" class="btn" style="background:linear-gradient(135deg, var(--red), #b91c1c); box-shadow:0 6px 20px rgba(239,68,68,0.35);" onclick="showDeleteAccountConfirm()"><i class="fas fa-user-times"></i> 注销账号</button>`;
+    document.getElementById('modal-overlay').classList.add('show');
+  };
+
+  window.showDeleteAccountConfirm = function() {
+    const user = getCurrentUser();
+    if (!user) return;
+    const modalBox = document.getElementById('modal-box');
+    modalBox.innerHTML = `
+      <button class="modal-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
+      <h3><i class="fas fa-exclamation-circle" style="color:var(--red);"></i> 确认注销账号</h3>
+      <p style="color:var(--text-dim); font-size:0.85rem; margin-bottom:1rem;">此操作不可撤销。请输入昵称 <strong style="color:var(--text);">${escapeHtml(user.username)}</strong> 以确认注销。</p>
+      <div class="form-group">
+        <label>确认昵称</label>
+        <div class="input-wrap">
+          <i class="fas fa-user"></i>
+          <input type="text" id="delete-confirm-username" placeholder="请输入昵称确认" required>
+        </div>
+      </div>
+      <button type="button" class="btn" style="background:linear-gradient(135deg, var(--red), #b91c1c); box-shadow:0 6px 20px rgba(239,68,68,0.35);" id="delete-account-btn" onclick="submitDeleteAccount()"><i class="fas fa-trash-alt"></i> 确认注销</button>`;
+  };
+
+  window.submitDeleteAccount = async function() {
+    const user = getCurrentUser();
+    if (!user) return;
+    const confirmName = document.getElementById('delete-confirm-username').value.trim();
+    if (confirmName !== user.username) { alert('输入的昵称与当前账号不一致'); return; }
+    if (!confirm('注销后所有数据将被永久删除，确定继续？')) return;
+
+    const btn = document.getElementById('delete-account-btn');
+    setLoading(btn, true);
+    const res = await apiFetch(`/account/${user.id}`, { method: 'DELETE' });
+    setLoading(btn, false, '<i class="fas fa-trash-alt"></i> 确认注销');
+    if (!res.success) { alert(res.message || '注销失败'); return; }
+
+    closeModal();
+    setCurrentUser(null);
+    localStorage.removeItem('chem_token');
+    authPage.style.display = 'flex';
+    app.style.display = 'none';
+    if (chatFab) chatFab.style.display = 'none';
+    switchTab(false);
+    document.getElementById('login-form').reset();
+    document.getElementById('register-form').reset();
+    hideMessage();
+    showMessage('账号已注销', 'success');
+  };
+
   // ===== 路由 =====
   function navTo(page) {
     document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
@@ -1119,12 +1326,22 @@
       RUMORS = rumorsRes.data || [];
       renderRumors();
     }
-    // 混用规则从 chemicals.json 中直接读取，通过后端 chemicals 接口不返回规则，单独获取
+    // 混用规则：科普页的"相关禁忌"和混用页的"已知组合"都要用，统一在这里加载
+    const rulesRes = await apiFetch('/mixing_rules');
+    if (rulesRes.success && Array.isArray(rulesRes.data)) {
+      MIXING_RULES = rulesRes.data;
+    }
+    // 首页统计：展示知识库规模（全部取后端真实数据）
     const statsRes = await apiFetch('/stats');
     if (statsRes.success && statsRes.data) {
-      document.getElementById('stat-chemicals').textContent = statsRes.data.chemical_count || CHEMICALS.length;
+      const s = statsRes.data;
+      const setNum = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+      setNum('stat-chemicals', s.chemical_count || CHEMICALS.length);
+      setNum('stat-aliases', s.alias_count || 0);
+      setNum('stat-rules', s.rule_count || 0);
+      setNum('stat-rumors', s.rumor_count || 0);
     }
-    renderSafetyCards();
+    renderCategoryCards();
   }
 
   // ===== AI鉴别 =====
@@ -1145,9 +1362,27 @@
     recognize(file);
   });
 
+  // 把"识别来源"显示到界面上：这是系统三级兜底能力唯一能被看见的地方
+  const SOURCE_LABELS = {
+    vision: { icon: 'fa-eye', text: 'AI 视觉识别（多模态大模型读图）' },
+    ocr: { icon: 'fa-font', text: '本地 OCR 文字识别' },
+    filename: { icon: 'fa-file-signature', text: '文件名匹配（视觉与 OCR 均未命中）' },
+    name: { icon: 'fa-keyboard', text: '名称 / 别名精确匹配' }
+  };
+
+  function setSourceTag(source, engine) {
+    const el = document.getElementById('ai-source');
+    if (!el) return;
+    const info = SOURCE_LABELS[source];
+    if (!info) { el.innerHTML = '<i class="fas fa-robot"></i> 识别方式：-'; return; }
+    const extra = (source === 'ocr' && engine) ? `（${engine}）` : '';
+    el.innerHTML = `<i class="fas ${info.icon}"></i> 识别方式：${info.text}${extra}`;
+  }
+
   async function recognize(file) {
     fileNameDisplay.textContent = '已选择: ' + file.name;
     aiResult.style.display = 'none';
+    resetFeedbackRow();
     aiThinking.style.display = 'inline-flex';
     uploadTrigger.disabled = true;
     uploadTrigger.innerHTML = '<span class="loading-spinner"></span> 识别中...';
@@ -1174,6 +1409,7 @@
       document.getElementById('ai-confidence-fill').style.width = '0%';
       document.getElementById('ai-safety-badge').textContent = '未知';
       document.getElementById('ai-safety-badge').className = 'badge gray';
+      setSourceTag(null);
       aiResult.style.display = 'block';
       return;
     }
@@ -1185,17 +1421,67 @@
     document.getElementById('ai-confidence-fill').style.width = matched.confidence + '%';
     document.getElementById('ai-safety-badge').textContent = matched.safety;
     document.getElementById('ai-safety-badge').className = 'badge ' + matched.color;
+    setSourceTag(matched.source, matched.ocr_engine);
+    showFeedbackRow(matched.name, matched.source);
     aiResult.style.display = 'block';
     saveHistory('ai', matched.name);
   }
 
-  document.getElementById('feedback-good').addEventListener('click', () => alert('感谢反馈！AI将记录此结果作为正样本。'));
-  document.getElementById('feedback-bad').addEventListener('click', () => alert('感谢反馈！AI将优化识别模型。'));
+  // ===== 识别反馈：真实提交到后端并落盘，不是只弹一句提示 =====
+  let lastRecognition = null;
+
+  function setFeedbackHint(html) {
+    const hint = document.getElementById('feedback-hint');
+    if (hint) hint.innerHTML = html;
+  }
+
+  function setFeedbackEnabled(enabled) {
+    ['feedback-good', 'feedback-bad'].forEach(id => {
+      const b = document.getElementById(id);
+      if (b) b.disabled = !enabled;
+    });
+  }
+
+  // 每次开始新识别时重置：没有识别结果就不显示这排按钮，避免"点了没意义"
+  function resetFeedbackRow() {
+    lastRecognition = null;
+    const row = document.getElementById('feedback-row');
+    if (row) row.style.display = 'none';
+    setFeedbackEnabled(true);
+    setFeedbackHint('<i class="fas fa-heart"></i> 反馈会记入后台统计');
+  }
+
+  function showFeedbackRow(name, source) {
+    lastRecognition = { name: name, source: source || 'unknown' };
+    const row = document.getElementById('feedback-row');
+    if (row) row.style.display = 'flex';
+    setFeedbackEnabled(true);
+    setFeedbackHint('<i class="fas fa-heart"></i> 反馈会记入后台统计');
+  }
+
+  async function submitRecognitionFeedback(correct) {
+    if (!lastRecognition) return;
+    const payload = { product: lastRecognition.name, source: lastRecognition.source, correct: correct };
+    setFeedbackEnabled(false);
+    setFeedbackHint('<i class="fas fa-spinner fa-spin"></i> 正在提交…');
+    const res = await apiFetch('/feedback', { method: 'POST', body: payload });
+    if (res.success) {
+      lastRecognition = null;  // 同一条结果只反馈一次
+      setFeedbackHint(`<i class="fas fa-check-circle" style="color:var(--green);"></i> 已记录「${escapeHtml(payload.product)} ${correct ? '识别准确' : '识别有误'}」，累计 ${res.total} 条反馈`);
+    } else {
+      setFeedbackEnabled(true);
+      setFeedbackHint(`<i class="fas fa-exclamation-circle" style="color:var(--red);"></i> ${escapeHtml(res.message || '提交失败，请稍后重试')}`);
+    }
+  }
+
+  document.getElementById('feedback-good').addEventListener('click', () => submitRecognitionFeedback(true));
+  document.getElementById('feedback-bad').addEventListener('click', () => submitRecognitionFeedback(false));
 
   // 手动输入名称识别
   async function recognizeByName(name) {
     const aiResult = document.getElementById('ai-result');
     const aiThinking = document.getElementById('ai-thinking');
+    resetFeedbackRow();
     aiThinking.style.display = 'inline-flex';
     const res = await apiFetch('/chemicals/resolve', {
       method: 'POST',
@@ -1215,6 +1501,7 @@
       document.getElementById('ai-confidence-fill').style.width = '0%';
       document.getElementById('ai-safety-badge').textContent = '未知';
       document.getElementById('ai-safety-badge').className = 'badge gray';
+      setSourceTag(null);
       aiResult.style.display = 'block';
       return;
     }
@@ -1228,6 +1515,8 @@
     document.getElementById('ai-confidence-fill').style.width = (typeof data.confidence === 'number' ? data.confidence + '%' : '0%');
     document.getElementById('ai-safety-badge').textContent = data.safety || '未知';
     document.getElementById('ai-safety-badge').className = 'badge ' + (data.color || 'gray');
+    setSourceTag('name');
+    showFeedbackRow(res.matched || data.name, 'name');
     aiResult.style.display = 'block';
     saveHistory('ai', res.matched || data.name);
   }
@@ -1334,16 +1623,30 @@
       return;
     }
     const matched = res.data;
+
+    if (matched.found === false) {
+      rumorResult.style.display = 'block';
+      rumorResult.innerHTML = `
+        <div class="flex" style="justify-content:space-between;">
+          <span style="font-weight:800; color:var(--text);"><i class="fas fa-question-circle" style="color:var(--amber);"></i> 鉴别结果：${escapeHtml(matched.result || '暂未收录')}</span>
+        </div>
+        <p style="margin-top:8px; line-height:1.7; color:var(--text-dim);">${escapeHtml(matched.explain || '')}</p>
+        <div class="evidence-box" style="margin-top:8px;"><i class="fas fa-database"></i> 本地辟谣库未命中</div>`;
+      saveHistory('rumor', text.substring(0, 30) + (text.length > 30 ? '...' : ''));
+      return;
+    }
+
     const confidence = matched.confidence || 90;
+    const sourceLabel = matched.source === 'deepseek' ? '由 AI 实时分析' : '基于本地辟谣库匹配';
     rumorResult.style.display = 'block';
     rumorResult.innerHTML = `
       <div class="flex" style="justify-content:space-between;">
-        <span style="font-weight:800; color:var(--text);"><i class="fas fa-check-circle" style="color:var(--green);"></i> 鉴别结果：${matched.result}</span>
+        <span style="font-weight:800; color:var(--text);"><i class="fas fa-check-circle" style="color:var(--green);"></i> 鉴别结果：${escapeHtml(matched.result || '')}</span>
         <span class="badge ${confidence > 80 ? 'green' : 'yellow'}" style="font-size:0.8rem;">置信度 ${confidence}%</span>
       </div>
       <div class="confidence-bar"><div class="confidence-fill" style="width:${confidence}%;"></div></div>
-      <p style="margin-top:8px; line-height:1.7; color:var(--text-dim);">科学解释：${matched.explain}</p>
-      <div class="evidence-box" style="margin-top:8px;"><i class="fas fa-robot"></i> 基于关键词特征判断</div>`;
+      <p style="margin-top:8px; line-height:1.7; color:var(--text-dim);">科学解释：${escapeHtml(matched.explain || '')}</p>
+      <div class="evidence-box" style="margin-top:8px;"><i class="fas fa-robot"></i> ${sourceLabel}</div>`;
 
     saveHistory('rumor', text.substring(0, 30) + (text.length > 30 ? '...' : ''));
   }
@@ -1385,7 +1688,7 @@
   }
 
   function initMixPage() {
-    document.getElementById('mix-input-hint').textContent = `已收录 ${CHEMICALS.length} 种常见化学品，支持别名识别`;
+    document.getElementById('mix-input-hint').textContent = `已收录 ${CHEMICALS.length} 种常见化学品、${MIXING_RULES.length} 条禁忌组合，支持别名识别`;
 
     const mixBtn = document.getElementById('mix-check-btn');
     mixBtn.onclick = checkMixing;
@@ -1395,23 +1698,60 @@
     renderKnownMixList();
   }
 
-  async function renderKnownMixList() {
+  // 已知危险组合：全部展示（不再只截前 10 条），可按危险等级筛选，点击直接发起查询
+  let mixLevelFilter = 'all';
+
+  function renderKnownMixList() {
     const knownList = document.getElementById('mix-known-list');
     if (!knownList) return;
-    // 从后端获取规则数据（通过 chemicals 数据结构）
-    const res = await apiFetch('/chemicals');
-    if (res.success && res.data && res.data.mixing_rules) {
-      MIXING_RULES = res.data.mixing_rules;
+
+    const counts = { all: MIXING_RULES.length };
+    MIXING_RULES.forEach(r => { counts[r.level] = (counts[r.level] || 0) + 1; });
+    const list = mixLevelFilter === 'all' ? MIXING_RULES : MIXING_RULES.filter(r => r.level === mixLevelFilter);
+
+    const bar = document.getElementById('mix-filter-bar');
+    if (bar) {
+      const tabs = [
+        ['all', `全部 ${counts.all}`],
+        ['critical', `剧毒 / 危险 ${counts.critical || 0}`],
+        ['warning', `有害 / 注意 ${counts.warning || 0}`],
+        ['info', `低危 ${counts.info || 0}`]
+      ];
+      bar.innerHTML = tabs.map(([k, label]) =>
+        `<span class="tag" data-level="${k}" style="cursor:pointer;${mixLevelFilter === k ? 'background:var(--primary);color:#fff;border-color:var(--primary);' : ''}">${label}</span>`
+      ).join('') + '<span style="font-size:0.78rem;color:var(--text-light);margin-left:auto;"><i class="fas fa-hand-pointer"></i> 点击任意组合可直接发起查询</span>';
+      bar.querySelectorAll('[data-level]').forEach(el => {
+        el.addEventListener('click', () => { mixLevelFilter = el.dataset.level; renderKnownMixList(); });
+      });
     }
-    const levelColors = { critical: 'var(--red)', warning: 'var(--amber)', info: 'var(--primary)' };
-    const levelIcons = { critical: 'fa-skull-crossbones', warning: 'fa-exclamation-triangle', info: 'fa-info-circle' };
-    knownList.innerHTML = MIXING_RULES.slice(0, 10).map(r =>
-      `<div class="rumor-item" style="border-left-color:${levelColors[r.level]};cursor:default;">
-        <div class="title"><i class="fas ${levelIcons[r.level]}" style="color:${levelColors[r.level]};"></i> ${escapeHtml(r.a)} + ${escapeHtml(r.b)} → <span class="badge ${r.level === 'critical' ? 'red' : r.level === 'warning' ? 'yellow' : 'green'}">${r.danger}</span></div>
+
+    if (!list.length) {
+      knownList.innerHTML = '<div class="history-item"><span style="color:var(--text-light);">该等级暂无记录</span></div>';
+      return;
+    }
+    knownList.innerHTML = list.map((r, i) => {
+      const st = LEVEL_STYLE[r.level] || LEVEL_STYLE.info;
+      return `<div class="rumor-item" data-idx="${i}" style="border-left-color:${st.color};cursor:pointer;">
+        <div class="title"><i class="fas ${st.icon}" style="color:${st.color};"></i> ${escapeHtml(r.a)} + ${escapeHtml(r.b)} → <span class="badge ${st.badge}">${escapeHtml(r.danger)}</span></div>
         <div class="explain"><strong>结果：</strong>${escapeHtml(r.result)}<br>${escapeHtml(r.explain)}</div>
-      </div>`
-    ).join('');
+      </div>`;
+    }).join('');
+    knownList.querySelectorAll('.rumor-item[data-idx]').forEach(el => {
+      el.addEventListener('click', () => {
+        const r = list[Number(el.dataset.idx)];
+        gotoMixPair(r.a, r.b);
+      });
+    });
   }
+
+  // 从"已知组合"点击：预填两个输入框并直接查询
+  window.gotoMixPair = function(a, b) {
+    const ia = document.getElementById('mix-input-a');
+    const ib = document.getElementById('mix-input-b');
+    if (ia) ia.value = a;
+    if (ib) ib.value = b;
+    checkMixing();
+  };
 
   async function checkMixing() {
     const rawA = document.getElementById('mix-input-a').value.trim();
@@ -1482,101 +1822,189 @@
     saveHistory('mix', a + ' + ' + b);
   }
 
-  // ===== 科普 =====
-  function renderSafetyCards() {
-    const grid = document.getElementById('safety-grid');
-    grid.innerHTML = SAFETY_CARDS.map((c, idx) =>
-      `<div class="safety-card" data-category="${escapeHtml(c.category)}" data-keywords="${escapeHtml(c.keywords)}" data-idx="${idx}">
-        <h4><i class="fas ${c.icon}"></i> ${escapeHtml(c.category)}</h4>
-        <div class="sub"><i class="fas fa-ban" style="color:var(--red);"></i> <span><strong>禁忌：</strong>${escapeHtml(c.taboo)}</span></div>
-        <div class="sub"><i class="fas fa-box" style="color:var(--amber);"></i> <span><strong>存放：</strong>${escapeHtml(c.storage)}</span></div>
-        <div class="sub"><i class="fas fa-hand-holding-water" style="color:var(--green);"></i> <span><strong>应急：</strong>${escapeHtml(c.emergency)}</span></div>
-        <div style="margin-top:0.5rem; font-size:0.8rem; color:var(--text-dim);"><i class="fas fa-flask" style="color:var(--primary);"></i> 常见：${escapeHtml(c.common)}</div>
-        <div style="margin-top:0.6rem; font-size:0.75rem; color:var(--primary);"><i class="fas fa-hand-pointer"></i> 点击查看该类别化学品</div>
-      </div>`
-    ).join('');
-    grid.querySelectorAll('.safety-card').forEach(card => {
-      card.addEventListener('click', () => showCategoryChemicals(card.dataset.category));
+  // ===== 安全科普 =====
+  // 视图三种状态：类别总览 / 搜索结果 / 某类别下的化学品清单
+  const safetyGrid = document.getElementById('safety-grid');
+  const safetyInfo = document.getElementById('safety-result-info');
+  const safetyRecommend = document.getElementById('safety-recommend');
+
+  function setSafetyInfo(html) {
+    if (!safetyInfo) return;
+    safetyInfo.innerHTML = html || '';
+    safetyInfo.style.display = html ? 'block' : 'none';
+  }
+
+  // 1) 类别总览：类别与数量全部来自后端数据，不再硬编码（否则数据新增类别会"消失"）
+  function renderCategoryCards() {
+    const counts = {};
+    CHEMICALS.forEach(c => { counts[c.category] = (counts[c.category] || 0) + 1; });
+    const categories = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+    setSafetyInfo(`<i class="fas fa-layer-group" style="color:var(--primary);"></i> 已收录 <strong>${CHEMICALS.length}</strong> 种化学品、<strong>${MIXING_RULES.length}</strong> 条混用禁忌、<strong>${categories.length}</strong> 个类别。点击类别查看清单，或直接搜索名称 / 别名。`);
+    if (safetyRecommend) safetyRecommend.style.display = 'block';
+    safetyGrid.innerHTML = categories.map(cat => {
+      const info = categoryInfo(cat);
+      return `<div class="safety-card" data-category="${escapeHtml(cat)}">
+        <h4><i class="fas ${info.icon}"></i> ${escapeHtml(cat)} <span class="tag" style="margin-left:auto;">${counts[cat]} 种</span></h4>
+        <div class="sub"><i class="fas fa-ban" style="color:var(--red);"></i> <span><strong>禁忌：</strong>${escapeHtml(info.taboo)}</span></div>
+        <div class="sub"><i class="fas fa-box" style="color:var(--amber);"></i> <span><strong>存放：</strong>${escapeHtml(info.storage)}</span></div>
+        <div class="sub"><i class="fas fa-hand-holding-water" style="color:var(--green);"></i> <span><strong>应急：</strong>${escapeHtml(info.emergency)}</span></div>
+        <div style="margin-top:0.6rem; font-size:0.75rem; color:var(--primary);"><i class="fas fa-hand-pointer"></i> 点击查看该类别下的 ${counts[cat]} 种化学品</div>
+      </div>`;
+    }).join('');
+    safetyGrid.querySelectorAll('.safety-card').forEach(card => {
+      card.addEventListener('click', () => renderCategoryChemicals(card.dataset.category));
     });
   }
+
+  // 2) 化学品清单（搜索结果与类别清单共用）
+  function renderChemList(list, titleHtml) {
+    if (safetyRecommend) safetyRecommend.style.display = 'none';
+    setSafetyInfo(titleHtml);
+    if (!list.length) {
+      safetyGrid.innerHTML = `<div class="safety-card" style="cursor:default;">
+        <h4><i class="fas fa-search-minus" style="color:var(--text-light);"></i> 没有匹配的化学品</h4>
+        <div class="sub"><i class="fas fa-lightbulb" style="color:var(--amber);"></i> <span>换个说法试试，例如「84」「酒精」「洁厕」「漂白」，输入一个字也能模糊命中。</span></div>
+        <div class="sub"><i class="fas fa-hand-pointer" style="color:var(--primary);"></i> <span style="cursor:pointer;text-decoration:underline;" onclick="resetSafetyView()">返回类别总览</span></div>
+      </div>`;
+      return;
+    }
+    safetyGrid.innerHTML = list.map(c => {
+      const alias = (c.alias || '').split(/\s+/).filter(Boolean).slice(0, 8).join(' · ');
+      const ruleCount = countRelatedRules(c.name);
+      return `<div class="safety-card" data-name="${escapeHtml(c.name)}">
+        <h4><i class="fas ${categoryIcon(c.category)}"></i> ${escapeHtml(c.name)}
+          <span class="badge ${c.color}" style="margin-left:auto;">${escapeHtml(c.safety)}</span></h4>
+        <div class="sub"><i class="fas fa-tag" style="color:var(--primary);"></i> <span><strong>类别：</strong>${escapeHtml(c.category)}${ruleCount ? `　<strong style="color:var(--red);">${ruleCount} 条相关禁忌</strong>` : ''}</span></div>
+        ${alias ? `<div class="sub"><i class="fas fa-code-branch" style="color:var(--text-light);"></i> <span><strong>别名：</strong>${escapeHtml(alias)}</span></div>` : ''}
+        <div class="sub"><i class="fas fa-lightbulb" style="color:var(--amber);"></i> <span>${escapeHtml(c.tip)}</span></div>
+        <div style="margin-top:0.6rem; font-size:0.75rem; color:var(--primary);"><i class="fas fa-hand-pointer"></i> 点击查看详情与相关禁忌</div>
+      </div>`;
+    }).join('');
+    safetyGrid.querySelectorAll('.safety-card').forEach(card => {
+      card.addEventListener('click', () => showChemDetail(card.dataset.name));
+    });
+  }
+
+  // 3) 检索：匹配名称与全部别名（187 个），命中越精确排越前
+  function searchChemicals(query) {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const scored = [];
+    CHEMICALS.forEach(c => {
+      const name = c.name.toLowerCase();
+      const aliases = (c.alias || '').split(/\s+/).filter(Boolean).map(a => a.toLowerCase());
+      let score = 0;
+      if (name === q) score = 100;
+      else if (aliases.includes(q)) score = 90;
+      else if (name.startsWith(q)) score = 80;
+      else if (name.includes(q)) score = 70;
+      else if (aliases.some(a => a.startsWith(q))) score = 60;
+      else if (aliases.some(a => a.includes(q))) score = 50;
+      else if (c.tip.toLowerCase().includes(q)) score = 30;
+      else if (c.category.toLowerCase().includes(q)) score = 20;
+      if (score) scored.push({ c, score });
+    });
+    scored.sort((x, y) => y.score - x.score);
+    return scored.map(x => x.c);
+  }
+
+  function performSearch(query) {
+    const q = query.trim();
+    if (!q) { resetSafetyView(); return; }
+    const list = searchChemicals(q);
+    renderChemList(list, `<i class="fas fa-search" style="color:var(--primary);"></i> 搜索「<strong>${escapeHtml(q)}</strong>」命中 <strong>${list.length}</strong> 个化学品（已匹配名称与全部别名）`);
+    if (list.length) saveHistory('safety', q);
+  }
+
+  function renderCategoryChemicals(category) {
+    const list = CHEMICALS.filter(c => c.category === category);
+    renderChemList(list, `<i class="fas ${categoryIcon(category)}" style="color:var(--primary);"></i> 「<strong>${escapeHtml(category)}</strong>」共 <strong>${list.length}</strong> 种化学品`);
+  }
+
+  window.resetSafetyView = function() {
+    const el = document.getElementById('safety-search');
+    if (el) el.value = '';
+    renderCategoryCards();
+  };
 
   window.searchKeyword = function(keyword) {
     document.getElementById('safety-search').value = keyword;
     performSearch(keyword);
   };
 
-  function performSearch(query) {
-    const q = query.trim().toLowerCase();
-    const cards = document.querySelectorAll('.safety-card');
-    let found = false;
-    cards.forEach(card => {
-      const text = card.textContent.toLowerCase();
-      const category = (card.dataset.category || '').toLowerCase();
-      const keywords = (card.dataset.keywords || '').toLowerCase();
-      const match = !q || text.includes(q) || category.includes(q) || keywords.includes(q);
-      card.style.display = match ? 'block' : 'none';
-      if (match && q) found = true;
-    });
-    if (q && found) saveHistory('safety', q);
-    if (!found && q) {
-      const tip = document.createElement('div');
-      tip.className = 'history-item';
-      tip.innerHTML = '<span style="color:var(--text-light);"><i class="fas fa-info-circle" style="color:var(--primary);"></i> 未找到匹配的化学品信息，试试其他关键词。</span>';
-      const grid = document.getElementById('safety-grid');
-      grid.innerHTML = '';
-      grid.appendChild(tip);
-      setTimeout(() => { renderSafetyCards(); }, 2000);
-    }
-  }
-
   document.getElementById('safety-search-btn').addEventListener('click', () => performSearch(document.getElementById('safety-search').value));
-  document.getElementById('safety-clear-btn').addEventListener('click', () => { document.getElementById('safety-search').value = ''; document.querySelectorAll('.safety-card').forEach(c => c.style.display = 'block'); });
+  document.getElementById('safety-clear-btn').addEventListener('click', () => window.resetSafetyView());
   document.getElementById('safety-search').addEventListener('keyup', function(e) { if (e.key === 'Enter') document.getElementById('safety-search-btn').click(); });
 
-  // ===== 弹窗 =====
-  function showCategoryChemicals(category) {
-    const chems = CHEMICALS.filter(c => c.category === category);
-    const card = SAFETY_CARDS.find(c => c.category === category);
-    if (!card) return;
-    const modalBox = document.getElementById('modal-box');
-    modalBox.innerHTML = `
-      <button class="modal-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
-      <h3><i class="fas ${card.icon}"></i> ${escapeHtml(category)} · 化学品列表</h3>
-      <p style="color:var(--text-dim); margin-bottom:0.5rem;">共 ${chems.length} 种化学品，点击查看安全提示</p>
-      <div class="modal-chem-list">
-        ${chems.map(c => `<div class="modal-chem-item" onclick="showChemDetail('${c.name}')">${escapeHtml(c.name)}</div>`).join('')}
-      </div>
-      <div style="border-top:1px solid var(--border); margin-top:1rem; padding-top:1rem;">
-        <div style="font-size:0.85rem; color:var(--text-dim); line-height:1.9;">
-          <p><i class="fas fa-ban" style="color:var(--red);"></i> <strong>禁忌：</strong>${escapeHtml(card.taboo)}</p>
-          <p><i class="fas fa-box" style="color:var(--amber);"></i> <strong>存放：</strong>${escapeHtml(card.storage)}</p>
-          <p><i class="fas fa-hand-holding-water" style="color:var(--green);"></i> <strong>应急：</strong>${escapeHtml(card.emergency)}</p>
-        </div>
-      </div>`;
-    document.getElementById('modal-overlay').classList.add('show');
+  // 与某化学品相关的混用禁忌（把 55 条规则真正用起来）
+  function relatedRules(name) {
+    return MIXING_RULES.filter(r => r.a === name || r.b === name);
+  }
+  function countRelatedRules(name) {
+    return relatedRules(name).length;
   }
 
+  // ===== 弹窗 =====
   window.showChemDetail = function(name) {
     const chem = CHEMICALS.find(c => c.name === name);
     if (!chem) return;
+    const rules = relatedRules(name);
+    const aliasCount = (chem.alias || '').split(/\s+/).filter(Boolean).length;
     const modalBox = document.getElementById('modal-box');
     modalBox.innerHTML = `
       <button class="modal-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
-      <h3><i class="fas fa-flask"></i> ${escapeHtml(chem.name)}</h3>
-      <div style="margin:0.8rem 0;">
-        <span class="tag">${escapeHtml(chem.category)}</span>
-        <span class="badge ${chem.color}">${chem.safety}</span>
+      <h3><i class="fas ${categoryIcon(chem.category)}"></i> ${escapeHtml(chem.name)}</h3>
+      <div style="margin:0.8rem 0; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <span class="tag"><i class="fas fa-tag"></i> ${escapeHtml(chem.category)}</span>
+        <span class="badge ${chem.color}">${escapeHtml(chem.safety)}</span>
+        <span class="tag" style="cursor:pointer;" onclick="gotoMix('${escapeHtml(chem.name)}')"><i class="fas fa-flask"></i> 查它与别的怎么混用</span>
       </div>
       <div class="tip-box" style="margin-top:0.5rem;">
         <p><i class="fas fa-lightbulb" style="color:var(--amber);"></i> <strong>安全提示：</strong></p>
         <p style="margin-top:0.3rem; line-height:1.7;">${escapeHtml(chem.tip)}</p>
       </div>
-      ${chem.alias ? `<p style="font-size:0.85rem; color:var(--text-dim); margin-top:0.6rem;"><i class="fas fa-tag" style="color:var(--primary);"></i> 别名：${escapeHtml(chem.alias)}</p>` : ''}
-      <div style="margin-top:1rem; text-align:center;">
-        <button class="voice-btn" onclick="navTo('mix'); closeModal();"><i class="fas fa-flask"></i> 查询混用禁忌</button>
-      </div>`;
+      ${chem.alias ? `<p style="font-size:0.85rem; color:var(--text-dim); margin-top:0.6rem;"><i class="fas fa-code-branch" style="color:var(--primary);"></i> <strong>别名（${aliasCount} 个）：</strong>${escapeHtml(chem.alias)}</p>` : ''}
+      ${rules.length ? ruleBlockHtml(name, rules) : `
+      <p style="margin-top:1rem; font-size:0.85rem; color:var(--text-dim);">
+        <i class="fas fa-check-circle" style="color:var(--green);"></i> 知识库中暂无与它相关的已知禁忌组合。
+      </p>`}
+    `;
     document.getElementById('modal-overlay').classList.add('show');
     saveHistory('safety', chem.name);
+  };
+
+  // 相关禁忌渲染（把 55 条规则反查出来，这才是"知识图谱"的实质）
+  function ruleBlockHtml(name, rules) {
+    const items = rules.map(r => {
+      const other = r.a === name ? r.b : r.a;
+      const st = LEVEL_STYLE[r.level] || LEVEL_STYLE.info;
+      return `<div style="padding:0.6rem 0.8rem; border-radius:10px; background:var(--bg-soft); border-left:3px solid ${st.color};">
+        <div style="font-size:0.9rem; font-weight:700; color:var(--text);">
+          <i class="fas ${st.icon}" style="color:${st.color};"></i>
+          ${escapeHtml(name)} + ${escapeHtml(other)} → <span class="badge ${st.badge}">${escapeHtml(r.danger)}</span>
+        </div>
+        <div style="font-size:0.82rem; color:var(--text-dim); margin-top:4px; line-height:1.6;">
+          <strong>结果：</strong>${escapeHtml(r.result)}<br>${escapeHtml(r.explain)}
+        </div>
+      </div>`;
+    }).join('');
+    return `
+      <div style="margin-top:1rem;">
+        <p style="font-weight:700; color:var(--text); margin-bottom:0.5rem;">
+          <i class="fas fa-exclamation-triangle" style="color:var(--red);"></i> 相关混用禁忌（${rules.length} 条）
+        </p>
+        <div style="display:flex; flex-direction:column; gap:8px;">${items}</div>
+      </div>`;
+  }
+
+  // 从化学品详情跳到混用禁忌页，并预填第一个输入框
+  window.gotoMix = function(name) {
+    closeModal();
+    navTo('mix');
+    const a = document.getElementById('mix-input-a');
+    const b = document.getElementById('mix-input-b');
+    if (a) a.value = name;
+    if (b) { b.value = ''; b.focus(); }
   };
 
   window.closeModal = function(event) {
@@ -1683,11 +2111,23 @@
 
   // ===== 初始化 =====
   (async function init() {
+    const params = new URLSearchParams(window.location.search);
+    const resetToken = params.get('reset_token');
+    if (resetToken) {
+      // 携带重置令牌时，停留在登录页并打开重置弹窗
+      if (chatFab) chatFab.style.display = 'none';
+      showResetPasswordModal(resetToken);
+      // 清理 URL 中的 token
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+
     const user = getCurrentUser();
     const token = getToken();
     if (user && token) {
       const res = await apiFetch('/verify');
       if (res.success) {
+        setCurrentUser(res.user);
         enterApp();
       } else {
         setCurrentUser(null);

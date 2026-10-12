@@ -1,10 +1,18 @@
-Flask==2.3.2
-Flask-CORS==4.0.0
-Flask-JWT-Extended==4.5.2
-bcrypt==4.0.1
-python-dotenv==1.0.0
-requests==2.31.0
+# Web 框架：Flask 3 官方配套 Werkzeug 3，因此不需要再锁 Werkzeug 版本。
+# （Flask 2.3.x 会访问 werkzeug.__version__，而 Werkzeug 3 已移除该属性，两者不兼容。）
+Flask>=3.0,<4.0
+Flask-CORS>=4.0.1
+Flask-JWT-Extended>=4.6.0
+bcrypt>=4.0.1
+python-dotenv>=1.0.0
+requests>=2.31.0
 pubchempy==1.0.5
-gunicorn==21.2.0
+gunicorn>=21.2.0
 Pillow>=10.0.0
+
+# OCR 兜底：优先 RapidOCR（纯 pip 安装、自带模型、无需系统级 Tesseract 二进制）
+# 注意：RapidOCR 依赖 opencv，而 opencv 在 Linux 上 import 需要 libGL.so.1，
+# 因此 Docker 镜像里必须装 libgl1 + libglib2.0-0（见 Dockerfile）。
+rapidocr_onnxruntime>=1.2.3
+# Tesseract 为可选后备方案；仅当系统安装了 tesseract 二进制时才会生效
 pytesseract>=0.3.10

@@ -1,0 +1,41 @@
+name: keep-alive
+
+# 目的：Render 免费实例 15 分钟没有请求就会休眠，之后首个访问者要等 20~60 秒冷启动。
+# 评委什么时候点开链接你无法预知，所以用定时任务定期访问，让实例一直保持唤醒状态。
+#
+# 几个注意点：
+#   1) GitHub 的 schedule 在高峰期可能延迟几分钟，因此留 10 分钟间隔（休眠阈值是 15 分钟）。
+#   2) 公共仓库的 Actions 免费；但仓库若连续 60 天没有任何提交，GitHub 会自动停用定时任务，
+#      届时到仓库 Actions 页面点一下 Enable workflow 即可。
+#   3) Render 免费档每月 750 实例小时。24 小时常驻约 720~744 小时，够用，
+#      但不要再加第二个常驻服务，否则会超。
+#   4) 本任务只负责"唤醒"，任何 HTTP 响应（包括 404）都说明实例是活的，都算成功。
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 访问站点保持实例唤醒
+        run: |
+          URL="https://chemsafe-abfz.onrender.com/healthz"
+          for i in 1 2 3; do
+            code=$(curl -s -o /tmp/body.txt -w '%{http_code}' --max-time 90 "$URL" || true)
+            echo "第 $i 次尝试: HTTP $code"
+            if [ "$code" != "000" ]; then
+              echo "实例已唤醒。响应体："
+              head -c 300 /tmp/body.txt; echo
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "三次都没有收到任何 HTTP 响应，实例可能异常，请到 Render 面板查看。"
+          exit 1

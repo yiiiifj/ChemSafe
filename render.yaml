@@ -3,10 +3,29 @@ services:
     name: chemsafe
     runtime: docker
     plan: free
+    # 探活端点（应用里已实现 /healthz），平台据此判断实例是否健康
+    healthCheckPath: /healthz
     envVars:
       - key: JWT_SECRET_KEY
         generateValue: true
+
+      # 文本模型（小安对话 / 建议生成）——密钥请在 Render 面板填写，不要提交到仓库
+      - key: DEEPSEEK_API_KEY
+        sync: false
       - key: DEEPSEEK_API_URL
         value: https://api.deepseek.com/chat/completions
       - key: DEEPSEEK_MODEL
         value: deepseek-chat
+
+      # 视觉模型（图片识别）——密钥请在 Render 面板填写，不要提交到仓库
+      # 不配置也能跑，但图片识别会降级为 OCR + 文件名匹配
+      - key: VISION_API_URL
+        value: https://open.bigmodel.cn/api/paas/v4/chat/completions
+      - key: VISION_MODEL
+        value: glm-5.3-flash
+      - key: VISION_API_KEY
+        sync: false
+
+      # 部署在 Render 反向代理之后，需要信任 X-Forwarded-For 才能正确识别客户端 IP（限流用）
+      - key: TRUST_PROXY
+        value: "1"

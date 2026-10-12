@@ -9,9 +9,25 @@ import sys
 import bcrypt
 import random
 import time
+import threading
 import requests
 import tempfile
+import smtplib
+import secrets
+import base64
+import io
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from PIL import Image
+
+# OCR 引擎：优先 RapidOCR（纯 pip 安装、自带模型、无需系统二进制，中文效果好），
+# 其次回退到 pytesseract（需要系统另装 Tesseract 二进制）。
+RAPIDOCR_AVAILABLE = False
+try:
+    from rapidocr_onnxruntime import RapidOCR  # noqa: F401
+    RAPIDOCR_AVAILABLE = True
+except Exception:
+    RapidOCR = None
 
 try:
     import pytesseract
@@ -19,24 +35,144 @@ try:
 except Exception:
     PYTESSERACT_AVAILABLE = False
 
+OCR_AVAILABLE = RAPIDOCR_AVAILABLE or PYTESSERACT_AVAILABLE
+if RAPIDOCR_AVAILABLE:
+    OCR_ENGINE_NAME = 'rapidocr'
+elif PYTESSERACT_AVAILABLE:
+    OCR_ENGINE_NAME = 'pytesseract'
+else:
+    OCR_ENGINE_NAME = None
+
 # 加载环境变量
 load_dotenv()
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 
 # 配置
-app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'chem-safe-secret-key-2024')
+_jwt_secret = os.getenv('JWT_SECRET_KEY')
+if not _jwt_secret:
+    _jwt_secret = secrets.token_urlsafe(48)
+    print('[warn] 未设置 JWT_SECRET_KEY，已生成临时随机密钥：进程重启后所有登录态失效。'
+          '生产环境请在环境变量中配置固定密钥。')
+app.config['JWT_SECRET_KEY'] = _jwt_secret
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=7)
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
 
-# DeepSeek 配置（当前未使用）
+# JSON 直接输出 UTF-8 中文，不再转义成 \uXXXX：中文内容为主的接口体积约减半，也方便调试时肉眼看。
+if hasattr(app, 'json'):
+    app.json.ensure_ascii = False
+
+# DeepSeek 配置（文本模型）
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
 DEEPSEEK_API_URL = os.getenv('DEEPSEEK_API_URL', 'https://api.deepseek.com/chat/completions')
 DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
 
+# 视觉模型配置（图片识别专用）
+# 注意：deepseek-chat 是文本模型，不支持图片输入，不能用作视觉识别。
+# 需配置任意 OpenAI 兼容的多模态接口，例如：
+#   通义千问  VISION_API_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions  VISION_MODEL=qwen-vl-max
+#   智谱      VISION_API_URL=https://open.bigmodel.cn/api/paas/v4/chat/completions             VISION_MODEL=glm-4v
+#   豆包/OpenAI 同理。未配置时图片识别自动降级为 OCR + 文件名匹配。
+VISION_API_URL = os.getenv('VISION_API_URL', '')
+VISION_API_KEY = os.getenv('VISION_API_KEY', '')
+VISION_MODEL = os.getenv('VISION_MODEL', '')
+VISION_ENABLED = bool(VISION_API_URL and VISION_API_KEY and VISION_MODEL)
+
+# 邮件/SMTP 配置（用于邮箱找回密码）
+SMTP_SERVER = os.getenv('SMTP_SERVER', '')
+SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
+SMTP_USER = os.getenv('SMTP_USER', '')
+SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+SMTP_FROM = os.getenv('SMTP_FROM', SMTP_USER)
+APP_BASE_URL = os.getenv('APP_BASE_URL', 'http://localhost:5000')
+
+# 是否信任反向代理传来的 X-Forwarded-For（Render / nginx 等部署时为 1；
+# 直连无代理时应设为 0，否则客户端可伪造 IP 绕过限流）
+TRUST_PROXY = os.getenv('TRUST_PROXY', '1') == '1'
+
 # 初始化
-CORS(app, origins='*', supports_credentials=True)
+# 认证走 Authorization: Bearer 头而非 Cookie，因此不需要 supports_credentials，
+# 且绝不应在携带凭据时使用通配来源。默认仅放开 /api/*，来源可用 CORS_ORIGINS 覆盖。
+_cors_origins = [o.strip() for o in os.getenv('CORS_ORIGINS', '*').split(',') if o.strip()] or ['*']
+CORS(app, resources={r'/api/*': {'origins': _cors_origins}})
 jwt = JWTManager(app)
+
+
+# ============ JWT 错误统一返回 JSON（前端 apiFetch 直接读 message 字段）============
+
+@jwt.unauthorized_loader
+def _jwt_missing(reason):
+    return jsonify({'success': False, 'message': '请先登录后再使用该功能'}), 401
+
+
+@jwt.expired_token_loader
+def _jwt_expired(header, payload):
+    return jsonify({'success': False, 'message': '登录已过期，请重新登录'}), 401
+
+
+@jwt.invalid_token_loader
+def _jwt_invalid(reason):
+    return jsonify({'success': False, 'message': '登录凭证无效，请重新登录'}), 401
+
+
+# ============ 简易内存限流 ============
+# 目的：防止接口被刷导致 DeepSeek / 视觉模型费用失控、密码重置邮件被滥用。
+# 说明：内存实现只在单进程内生效（当前 gunicorn --workers 1，恰好够用）；
+#       若将来横向扩容，需要换成 Redis 等共享存储。
+RATE_LIMITS = {
+    '/api/login': (20, 300),            # 登录：防暴力破解
+    '/api/register': (10, 300),
+    '/api/forgot-password': (5, 3600),  # 找回密码：防刷邮件
+    '/api/upload': (20, 300),           # 以下都花钱（视觉模型 / DeepSeek）
+    '/api/chat': (20, 300),
+    '/api/chat/product': (20, 300),
+    '/api/analyze-rumor': (20, 300),
+    '/api/mix/check': (30, 300),
+    '/api/feedback': (60, 300),
+}
+
+_rate_buckets = {}
+
+
+def _client_ip():
+    """取客户端 IP。
+
+    取 X-Forwarded-For 的**最后一段**：代理是「追加」而非「替换」该头，
+    因此靠前的内容是客户端可伪造的，最后一段才是代理亲眼看到的真实地址。
+    """
+    if TRUST_PROXY:
+        xff = request.headers.get('X-Forwarded-For', '')
+        parts = [p.strip() for p in xff.split(',') if p.strip()]
+        if parts:
+            return parts[-1]
+    return request.remote_addr or 'unknown'
+
+
+@app.before_request
+def _apply_rate_limit():
+    rule = RATE_LIMITS.get(request.path)
+    if not rule or request.method != 'POST':
+        return None
+    limit, window = rule
+    key = (request.path, _client_ip())
+    now = time.time()
+    with _write_lock:
+        # 桶数量保护：极端情况下清掉已过期的键，避免内存无限增长
+        if len(_rate_buckets) > 5000:
+            for k in [k for k, v in _rate_buckets.items() if not v or now - v[-1] > 3600]:
+                _rate_buckets.pop(k, None)
+        hits = [t for t in _rate_buckets.get(key, []) if now - t < window]
+        if len(hits) >= limit:
+            _rate_buckets[key] = hits
+            retry = max(1, int(window - (now - hits[0])) + 1)
+            resp = jsonify({'success': False,
+                            'message': f'操作过于频繁，请在 {retry} 秒后再试'})
+            resp.status_code = 429
+            resp.headers['Retry-After'] = str(retry)
+            return resp
+        hits.append(now)
+        _rate_buckets[key] = hits
+    return None
 
 # 数据文件路径
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -44,6 +180,11 @@ DATA_DIR = os.path.join(BASE_DIR, 'data')
 USERS_FILE = os.path.join(DATA_DIR, 'users.json')
 HISTORIES_FILE = os.path.join(DATA_DIR, 'histories.json')
 CHEMICALS_FILE = os.path.join(DATA_DIR, 'chemicals.json')
+RESET_TOKENS_FILE = os.path.join(DATA_DIR, 'reset_tokens.json')
+FEEDBACK_FILE = os.path.join(DATA_DIR, 'feedback.json')
+
+# 历史记录允许的类型白名单（防止非法 type 写入导致 KeyError）
+VALID_HIST_TYPES = ('ai', 'rumor', 'safety', 'mix')
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -131,6 +272,10 @@ def init_data():
         with open(CHEMICALS_FILE, 'w', encoding='utf-8') as f:
             json.dump({"chemicals": [], "mixing_rules": [], "rumors": []}, f, ensure_ascii=False, indent=2)
 
+    if not os.path.exists(RESET_TOKENS_FILE):
+        with open(RESET_TOKENS_FILE, 'w', encoding='utf-8') as f:
+            json.dump({}, f, ensure_ascii=False, indent=2)
+
 
 init_data()
 
@@ -140,14 +285,101 @@ def read_json(file_path):
         with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except (json.JSONDecodeError, FileNotFoundError):
-        if any(k in file_path for k in ('histories', 'chemicals', 'pubchem_cache', 'deepseek_advice_cache')):
+        if any(k in file_path for k in ('histories', 'chemicals', 'pubchem_cache',
+                                        'deepseek_advice_cache', 'reset_tokens')):
             return {}
         return []
 
 
+# 写锁：串行化进程内的文件写入（当前部署 gunicorn --workers 1，单进程即全部）
+_write_lock = threading.Lock()
+
+
 def write_json(file_path, data):
-    with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    """原子写入：先写同目录临时文件，再 os.replace 覆盖。
+
+    直接覆盖原文件的话，一旦写入过程中进程被杀 / 磁盘满，会留下半个 JSON，
+    下次读取直接失败、数据全丢。os.replace 在同一文件系统上是原子操作，
+    要么是旧内容、要么是新内容，不会出现中间态。
+    """
+    with _write_lock:
+        directory = os.path.dirname(file_path) or '.'
+        fd, tmp_path = tempfile.mkstemp(dir=directory, suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, file_path)
+        except Exception:
+            if os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+            raise
+
+
+def _load_reset_tokens():
+    try:
+        return read_json(RESET_TOKENS_FILE)
+    except Exception:
+        return {}
+
+
+def _save_reset_tokens(tokens):
+    write_json(RESET_TOKENS_FILE, tokens)
+
+
+def _cleanup_reset_tokens():
+    """清理过期令牌"""
+    tokens = _load_reset_tokens()
+    now = datetime.now()
+    cleaned = {k: v for k, v in tokens.items() if datetime.fromisoformat(v.get('expires')) > now}
+    if len(cleaned) != len(tokens):
+        _save_reset_tokens(cleaned)
+    return cleaned
+
+
+def _generate_reset_token(user_id, email):
+    """生成带时效的重置令牌并持久化"""
+    token = secrets.token_urlsafe(32)
+    expires = (datetime.now() + timedelta(hours=1)).isoformat()
+    tokens = _cleanup_reset_tokens()
+    tokens[token] = {'user_id': user_id, 'email': email, 'expires': expires}
+    _save_reset_tokens(tokens)
+    return token
+
+
+def _send_reset_email(email, token):
+    """发送密码重置邮件，返回 (success, error_message)"""
+    if not all([SMTP_SERVER, SMTP_USER, SMTP_PASSWORD]):
+        return False, '邮件服务未配置'
+
+    reset_url = f"{APP_BASE_URL}/?reset_token={token}"
+    subject = 'ChemSafe 密码重置'
+    body = (
+        f"<p>您好，</p>"
+        f"<p>您正在申请重置 ChemSafe 账号密码。请点击下方链接完成重置（1小时内有效）：</p>"
+        f"<p><a href='{reset_url}'>{reset_url}</a></p>"
+        f"<p>如非本人操作，请忽略此邮件。</p>"
+        f"<p>ChemSafe · 家庭化学品安全智能助手</p>"
+    )
+
+    msg = MIMEMultipart()
+    msg['From'] = SMTP_FROM or SMTP_USER
+    msg['To'] = email
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'html', 'utf-8'))
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(SMTP_FROM or SMTP_USER, email, msg.as_string())
+        return True, None
+    except Exception as e:
+        return False, str(e)
 
 
 def get_chemicals_data():
@@ -281,6 +513,41 @@ def deepseek_chat(messages, temperature=0.7, max_tokens=800):
             'max_tokens': max_tokens
         }
         resp = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        return data['choices'][0]['message']['content'], None
+    except Exception as e:
+        return None, str(e)
+
+
+def vision_recognize(image_base64, prompt='请识别这张化学品标签图片，返回产品名称、主要成分或类别，尽量简洁。', max_tokens=300):
+    """调用 OpenAI 兼容的多模态视觉接口识别图片中的化学品信息。
+
+    未配置视觉模型时返回 (None, '未配置视觉模型')，调用方应直接降级到 OCR，
+    避免每次都发一次注定失败的请求。
+    """
+    if not VISION_ENABLED:
+        return None, '未配置视觉模型（需设置 VISION_API_URL / VISION_API_KEY / VISION_MODEL）'
+    try:
+        headers = {
+            'Authorization': f'Bearer {VISION_API_KEY}',
+            'Content-Type': 'application/json'
+        }
+        payload = {
+            'model': VISION_MODEL,
+            'messages': [
+                {'role': 'system', 'content': '你是家庭化学品安全识别助手，请根据图片内容识别化学品名称或主要成分，只输出最可能的名称，不要多余解释。'},
+                {
+                    'role': 'user',
+                    'content': [
+                        {'type': 'text', 'text': prompt},
+                        {'type': 'image_url', 'image_url': {'url': f'data:image/jpeg;base64,{image_base64}'}}
+                    ]
+                }
+            ],
+            'max_tokens': max_tokens
+        }
+        resp = requests.post(VISION_API_URL, headers=headers, json=payload, timeout=60)
         resp.raise_for_status()
         data = resp.json()
         return data['choices'][0]['message']['content'], None
@@ -704,8 +971,9 @@ def build_local_chat_reply(user_input):
 @app.route('/api/register', methods=['POST'])
 def register():
     data = request.json
-    username = data.get('username')
-    password = data.get('password')
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    email = data.get('email', '').strip().lower()
 
     if not username or not password:
         return jsonify({'success': False, 'message': '请填写昵称和密码'}), 400
@@ -713,16 +981,21 @@ def register():
         return jsonify({'success': False, 'message': '昵称至少2个字符'}), 400
     if len(password) < 6:
         return jsonify({'success': False, 'message': '密码至少6位'}), 400
+    if email and '@' not in email:
+        return jsonify({'success': False, 'message': '邮箱格式不正确'}), 400
 
     users = read_json(USERS_FILE)
     if any(u['username'] == username for u in users):
         return jsonify({'success': False, 'message': '该昵称已被注册'}), 400
+    if email and any(u.get('email') == email for u in users):
+        return jsonify({'success': False, 'message': '该邮箱已被绑定'}), 400
 
     hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
     new_user = {
         'id': int(time.time() * 1000),
         'username': username,
         'password': hashed.decode('utf-8'),
+        'email': email,
         'createdAt': str(datetime.now())
     }
     users.append(new_user)
@@ -737,7 +1010,7 @@ def register():
         'success': True,
         'message': '注册成功',
         'token': access_token,
-        'user': {'id': new_user['id'], 'username': new_user['username']}
+        'user': {'id': new_user['id'], 'username': new_user['username'], 'email': email}
     })
 
 
@@ -774,7 +1047,7 @@ def verify():
     user = next((u for u in users if str(u['id']) == user_id), None)
     if not user:
         return jsonify({'success': False, 'message': '用户不存在'}), 401
-    return jsonify({'success': True, 'user': {'id': user['id'], 'username': user['username']}})
+    return jsonify({'success': True, 'user': {'id': user['id'], 'username': user['username'], 'email': user.get('email', '')}})
 
 
 @app.route('/api/chemicals', methods=['GET'])
@@ -783,7 +1056,15 @@ def get_chemicals():
     return jsonify({'success': True, 'data': data.get('chemicals', [])})
 
 
+@app.route('/api/mixing_rules', methods=['GET'])
+def get_mixing_rules():
+    """混用禁忌规则表（前端"已知混用禁忌"列表依赖此接口）"""
+    data = get_chemicals_data()
+    return jsonify({'success': True, 'data': data.get('mixing_rules', [])})
+
+
 @app.route('/api/chemicals/resolve', methods=['POST'])
+@jwt_required()
 def resolve_chemical_api():
     """解析用户输入的化学品名称；本地未命中时调用 PubChem 并用 DeepSeek 生成中文建议"""
     data = request.json
@@ -823,6 +1104,8 @@ def get_history(user_id, hist_type):
     current_user = get_jwt_identity()
     if str(user_id) != current_user:
         return jsonify({'success': False, 'message': '无权访问'}), 403
+    if hist_type not in VALID_HIST_TYPES:
+        return jsonify({'success': False, 'message': '无效的记录类型'}), 400
     histories = read_json(HISTORIES_FILE)
     user_hist = histories.get(str(user_id), {'ai': [], 'rumor': [], 'safety': [], 'mix': []})
     return jsonify({'success': True, 'data': user_hist.get(hist_type, [])})
@@ -840,10 +1123,17 @@ def save_history():
     if str(user_id) != current_user:
         return jsonify({'success': False, 'message': '无权操作'}), 403
 
+    if hist_type not in VALID_HIST_TYPES:
+        return jsonify({'success': False, 'message': '无效的记录类型'}), 400
+    if content is None:
+        return jsonify({'success': False, 'message': '缺少记录内容'}), 400
+
     histories = read_json(HISTORIES_FILE)
     user_id_str = str(user_id)
     if user_id_str not in histories:
         histories[user_id_str] = {'ai': [], 'rumor': [], 'safety': [], 'mix': []}
+    if hist_type not in histories[user_id_str] or not isinstance(histories[user_id_str][hist_type], list):
+        histories[user_id_str][hist_type] = []
 
     histories[user_id_str][hist_type].insert(0, {
         'content': content,
@@ -856,19 +1146,115 @@ def save_history():
     return jsonify({'success': True, 'message': '保存成功'})
 
 
-@app.route('/api/history/<int:user_id>/<hist_type>', methods=['DELETE'])
+@app.route('/api/history/<int:user_id>/<hist_type>/<int:index>', methods=['DELETE'])
 @jwt_required()
-def clear_history(user_id, hist_type):
-    """清空某类历史记录"""
+def delete_history_item(user_id, hist_type, index):
+    """删除单条历史记录"""
     current_user = get_jwt_identity()
     if str(user_id) != current_user:
         return jsonify({'success': False, 'message': '无权操作'}), 403
+    if hist_type not in VALID_HIST_TYPES:
+        return jsonify({'success': False, 'message': '无效的记录类型'}), 400
+    histories = read_json(HISTORIES_FILE)
+    user_id_str = str(user_id)
+    if user_id_str in histories and hist_type in histories[user_id_str]:
+        items = histories[user_id_str][hist_type]
+        if 0 <= index < len(items):
+            items.pop(index)
+            write_json(HISTORIES_FILE, histories)
+            return jsonify({'success': True, 'message': '已删除'})
+    return jsonify({'success': False, 'message': '记录不存在'}), 404
+
+
+@app.route('/api/history/<int:user_id>/<hist_type>', methods=['DELETE'])
+@jwt_required()
+def clear_history(user_id, hist_type):
+    """清空某类历史记录（保留供管理后台使用）"""
+    current_user = get_jwt_identity()
+    if str(user_id) != current_user:
+        return jsonify({'success': False, 'message': '无权操作'}), 403
+    if hist_type not in VALID_HIST_TYPES:
+        return jsonify({'success': False, 'message': '无效的记录类型'}), 400
     histories = read_json(HISTORIES_FILE)
     user_id_str = str(user_id)
     if user_id_str in histories and hist_type in histories[user_id_str]:
         histories[user_id_str][hist_type] = []
         write_json(HISTORIES_FILE, histories)
     return jsonify({'success': True, 'message': '已清空'})
+
+
+@app.route('/api/forgot-password', methods=['POST'])
+def forgot_password():
+    """请求邮箱密码重置：发送带令牌的重置链接"""
+    data = request.json
+    email = data.get('email', '').strip().lower()
+    if not email or '@' not in email:
+        return jsonify({'success': False, 'message': '请输入有效邮箱'}), 400
+
+    users = read_json(USERS_FILE)
+    user = next((u for u in users if u.get('email', '').lower() == email), None)
+    # 无论邮箱是否存在，都返回相同提示，避免枚举
+    if not user:
+        return jsonify({'success': True, 'message': '如果该邮箱已绑定账号，重置链接将发送至邮箱'})
+
+    token = _generate_reset_token(user['id'], email)
+    success, err = _send_reset_email(email, token)
+    if not success:
+        print(f'发送重置邮件失败: {err}')
+        return jsonify({'success': False, 'message': '邮件发送失败，请检查邮件服务配置'}), 500
+
+    return jsonify({'success': True, 'message': '重置链接已发送至邮箱，请查收（1小时内有效）'})
+
+
+@app.route('/api/reset-password', methods=['POST'])
+def reset_password():
+    """通过邮箱令牌重置密码"""
+    data = request.json
+    token = data.get('token', '').strip()
+    new_password = data.get('newPassword', '').strip()
+    if not token or not new_password:
+        return jsonify({'success': False, 'message': '缺少令牌或新密码'}), 400
+    if len(new_password) < 6:
+        return jsonify({'success': False, 'message': '新密码至少6位'}), 400
+
+    tokens = _cleanup_reset_tokens()
+    record = tokens.get(token)
+    if not record:
+        return jsonify({'success': False, 'message': '重置链接已过期或无效'}), 400
+
+    users = read_json(USERS_FILE)
+    user = next((u for u in users if str(u['id']) == str(record['user_id'])), None)
+    if not user:
+        return jsonify({'success': False, 'message': '用户不存在'}), 404
+
+    hashed = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
+    user['password'] = hashed.decode('utf-8')
+    write_json(USERS_FILE, users)
+
+    # 重置成功后使该令牌失效
+    tokens.pop(token, None)
+    _save_reset_tokens(tokens)
+
+    return jsonify({'success': True, 'message': '密码已重置，请用新密码登录'})
+
+
+@app.route('/api/account/<int:user_id>', methods=['DELETE'])
+@jwt_required()
+def delete_account(user_id):
+    """注销账号：删除用户及其历史记录"""
+    current_user = get_jwt_identity()
+    if str(user_id) != current_user:
+        return jsonify({'success': False, 'message': '无权操作'}), 403
+
+    users = read_json(USERS_FILE)
+    users = [u for u in users if str(u['id']) != str(user_id)]
+    write_json(USERS_FILE, users)
+
+    histories = read_json(HISTORIES_FILE)
+    histories.pop(str(user_id), None)
+    write_json(HISTORIES_FILE, histories)
+
+    return jsonify({'success': True, 'message': '账号已注销'})
 
 
 def _match_chemical_by_text(text, chemicals):
@@ -905,6 +1291,9 @@ def _match_chemical_by_text_with_info(text, chemicals):
 
 def _calc_upload_confidence(source, quality):
     """根据识别来源和匹配质量计算确定性置信度（同图同值）"""
+    if source == 'vision':
+        # 视觉 API 基础 85，质量越高越接近 98
+        return round(85 + quality * 13, 1)
     if source == 'ocr':
         # OCR 基础 82，质量越高越接近 97
         return round(82 + quality * 15, 1)
@@ -914,7 +1303,65 @@ def _calc_upload_confidence(source, quality):
     return 50.0
 
 
+_rapidocr_engine = None
+
+
+def _get_rapidocr_engine():
+    """懒加载 RapidOCR 引擎（首次会加载模型，耗时数秒，只做一次）"""
+    global _rapidocr_engine
+    if _rapidocr_engine is None:
+        _rapidocr_engine = RapidOCR()
+    return _rapidocr_engine
+
+
+def ocr_extract_text(image_path):
+    """用可用的 OCR 引擎提取图片文字，返回 (text, engine_name)。
+
+    优先 RapidOCR（免系统依赖、中文识别效果好），失败时回退 pytesseract。
+    都不可用或都识别为空时返回 ('', None)。
+    """
+    if RAPIDOCR_AVAILABLE:
+        try:
+            engine = _get_rapidocr_engine()
+            result, _elapse = engine(image_path)
+            if result:
+                lines = [item[1] for item in result if len(item) > 1 and item[1]]
+                text = '\n'.join(lines)
+                if text.strip():
+                    return text, 'rapidocr'
+        except Exception as e:
+            print(f'RapidOCR 识别失败，尝试回退: {e}')
+
+    if PYTESSERACT_AVAILABLE:
+        try:
+            image = Image.open(image_path)
+            image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+            text = pytesseract.image_to_string(image, lang='chi_sim+eng')
+            if text.strip():
+                return text, 'pytesseract'
+        except Exception as e:
+            print(f'Tesseract 识别失败: {e}')
+
+    return '', None
+
+
+def _resize_to_base64(file_storage, max_size=(1024, 1024), quality=85):
+    """将上传图片缩放、转 JPEG 后返回 base64 字符串"""
+    try:
+        image = Image.open(file_storage.stream)
+        if image.mode in ('RGBA', 'P'):
+            image = image.convert('RGB')
+        image.thumbnail(max_size, Image.Resampling.LANCZOS)
+        buffer = io.BytesIO()
+        image.save(buffer, format='JPEG', quality=quality)
+        return base64.b64encode(buffer.getvalue()).decode('utf-8')
+    except Exception as e:
+        print(f'图片预处理失败: {e}')
+        return None
+
+
 @app.route('/api/upload', methods=['POST'])
+@jwt_required()
 def upload_image():
     if 'image' not in request.files:
         return jsonify({'success': False, 'message': '未上传文件'}), 400
@@ -925,21 +1372,41 @@ def upload_image():
     matched = None
     source = 'none'
     quality = 0
+    vision_text = None
+    ocr_engine = None
 
-    # 1. 优先用 OCR 识别图片中的文字（最准确）
-    if PYTESSERACT_AVAILABLE:
+    # 1. 优先调用视觉模型识别标签内容（需配置 VISION_* 变量；未配置则直接走 OCR）
+    if VISION_ENABLED:
+        try:
+            base64_image = _resize_to_base64(file)
+            if base64_image:
+                vision_text, err = vision_recognize(
+                    base64_image,
+                    prompt='这是一张家庭化学品产品标签的照片。请识别并返回产品名称、主要成分或常见别名，只输出最可能的名称，不要解释。例如：84消毒液、洁厕灵、医用酒精、洗洁精。',
+                    max_tokens=200
+                )
+                if err:
+                    print(f'Vision API 调用失败: {err}')
+                elif vision_text:
+                    info = _match_chemical_by_text_with_info(vision_text, chemicals)
+                    if info['chemical']:
+                        matched = info['chemical']
+                        source = 'vision'
+                        quality = info['quality']
+        except Exception as e:
+            print(f'Vision 识别异常: {e}')
+
+    # 2. Vision 未命中时回退到 OCR（RapidOCR 优先，其次 Tesseract）
+    if not matched and OCR_AVAILABLE:
         tmp_path = None
         try:
+            file.stream.seek(0)
             ext = os.path.splitext(filename)[1] or '.jpg'
             with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
                 file.save(tmp.name)
                 tmp_path = tmp.name
-            image = Image.open(tmp_path)
-            # 对超大图进行缩放，加快 OCR、降低内存占用和超时概率
-            image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
-            # 中英文混合识别
-            ocr_text = pytesseract.image_to_string(image, lang='chi_sim+eng')
-            if ocr_text.strip():
+            ocr_text, ocr_engine = ocr_extract_text(tmp_path)
+            if ocr_text:
                 info = _match_chemical_by_text_with_info(ocr_text, chemicals)
                 if info['chemical']:
                     matched = info['chemical']
@@ -954,7 +1421,7 @@ def upload_image():
                 except Exception:
                     pass
 
-    # 2. OCR 未命中时回退到文件名匹配
+    # 3. OCR 未命中时回退到文件名匹配
     if not matched:
         info = _match_chemical_by_text_with_info(filename, chemicals)
         if info['chemical']:
@@ -962,13 +1429,20 @@ def upload_image():
             source = 'filename'
             quality = info['quality']
 
-    # 3. 仍未命中则返回识别失败，不再随机返回
+    # 4. 仍未命中则返回识别失败，不再随机返回
     if not matched:
+        if not VISION_ENABLED and not OCR_AVAILABLE:
+            hint = ('当前未配置视觉模型（VISION_API_KEY），本机也没有可用的 OCR 引擎，'
+                    '只能按文件名匹配。请配置 VISION_API_KEY，或安装 rapidocr_onnxruntime / Tesseract。')
+        elif not VISION_ENABLED:
+            hint = '未配置视觉模型（VISION_API_KEY），已尝试 OCR 但未匹配到已知化学品，建议直接输入产品名称查询。'
+        else:
+            hint = '未能从图片中识别出已知化学品，建议直接输入产品名称查询。'
         return jsonify({
             'success': True,
             'data': {
                 'recognized': False,
-                'message': '未能从图片中识别出已知化学品，建议直接输入产品名称查询。'
+                'message': hint
             }
         })
 
@@ -979,39 +1453,121 @@ def upload_image():
             **matched,
             'recognized': True,
             'confidence': confidence,
-            'source': source
+            'source': source,
+            'ocr_engine': ocr_engine if source == 'ocr' else None
         }
     })
 
 
+# 谣言本地匹配阈值：>= 前者直接采用本地结论；>= 后者仅作为 AI 判断的提示
+RUMOR_LOCAL_THRESHOLD = 0.35
+RUMOR_HINT_THRESHOLD = 0.15
+
+
+def _rumor_tokens(text):
+    """把文本切成用于相似度比较的 token：英文/数字词 + 中文二元组（bigram）"""
+    import re
+    cleaned = re.sub(r'[^\w\u4e00-\u9fa5]+', '', (text or '').lower())
+    tokens = set(re.findall(r'[a-z0-9]{2,}', cleaned))
+    for i in range(len(cleaned) - 1):
+        pair = cleaned[i:i + 2]
+        if all('\u4e00' <= ch <= '\u9fa5' for ch in pair):
+            tokens.add(pair)
+    return tokens
+
+
+def _rumor_similarity(query, title):
+    """Dice 相似度（0~1）：同时考虑查询与标题两侧长度，
+    避免像"84消毒液怎么用"这类短查询因被长标题包含而虚高。"""
+    q = _rumor_tokens(query)
+    t = _rumor_tokens(title)
+    if not q or not t:
+        return 0.0
+    return 2 * len(q & t) / (len(q) + len(t))
+
+
+def _match_rumor(text, rumors):
+    """返回 (最相似的谣言, 相似度)；无候选返回 (None, 0.0)"""
+    best, best_score = None, 0.0
+    for r in rumors:
+        title = r.get('title', '')
+        if not title:
+            continue
+        if title in text or text in title:
+            return r, 1.0
+        score = _rumor_similarity(text, title)
+        if score > best_score:
+            best, best_score = r, score
+    return best, best_score
+
+
 @app.route('/api/analyze-rumor', methods=['POST'])
+@jwt_required()
 def analyze_rumor():
     data = request.json
-    text = data.get('text', '')
+    text = (data.get('text') or '').strip()
     if not text:
         return jsonify({'success': False, 'message': '请输入谣言内容'}), 400
 
     rumors = get_chemicals_data().get('rumors', [])
-    matched = next(
-        (r for r in rumors if r['title'] in text or text in r['title']),
-        None
-    )
-    if not matched:
-        # 关键词匹配
-        best_score = 0
-        for r in rumors:
-            title = r['title']
-            score = sum(1 for word in text if word in title) / max(len(title), 1)
-            if score > best_score:
-                best_score = score
-                matched = r
-        if not matched:
-            matched = random.choice(rumors)
+    matched, score = _match_rumor(text, rumors)
 
-    return jsonify({'success': True, 'data': {**matched, 'input': text}})
+    # 本地辟谣库命中：只有相似度足够高才直接采用，避免张冠李戴
+    if matched and score >= RUMOR_LOCAL_THRESHOLD:
+        confidence = int(round(min(0.98, 0.72 + score * 0.3) * 100))
+        return jsonify({'success': True, 'data': {
+            **matched,
+            'input': text,
+            'found': True,
+            'confidence': confidence,
+            'source': 'local'
+        }})
+
+    # 相似但未达阈值 / 完全未命中：交给 DeepSeek 实时判断（可用时）
+    if DEEPSEEK_API_KEY:
+        hint = ''
+        if matched and score >= RUMOR_HINT_THRESHOLD:
+            hint = (f'\n（本地辟谣库中最接近的说法是「{matched["title"]}」，'
+                    '仅供参考，请独立判断用户说法是否等同于此。）')
+        messages = [
+            {'role': 'system', 'content': (
+                '你是家庭化学品安全领域的辟谣助手。请判断用户给出的说法是否成立，'
+                '用中文先给出明确结论（谣言/属实/部分正确），再简要说明科学依据。'
+                '不确定时明确说明不确定，不要编造。控制在 200 字以内。'
+            )},
+            {'role': 'user', 'content': f'网传说法：{text}{hint}'}
+        ]
+        reply, err = deepseek_chat(messages, temperature=0.3, max_tokens=400)
+        if reply:
+            return jsonify({'success': True, 'data': {
+                'title': text,
+                'result': 'AI 分析结论',
+                'explain': reply,
+                'confidence': 70,
+                'found': True,
+                'source': 'deepseek',
+                'input': text
+            }})
+        print(f'辟谣 DeepSeek 调用失败: {err}')
+
+    # 最终未命中：明确告知未收录，绝不返回随机结果
+    tip = '本地辟谣库暂未收录该说法。'
+    if matched and score >= RUMOR_HINT_THRESHOLD:
+        tip += f'最接近的已收录说法是「{matched["title"]}」，但相似度不足，未直接采用。'
+    tip += '建议核对产品说明书，或咨询权威机构后再判断，切勿轻信未经验证的说法。'
+    return jsonify({'success': True, 'data': {
+        'title': text,
+        'result': '暂未收录',
+        'explain': tip,
+        'confidence': 0,
+        'found': False,
+        'source': 'none',
+        'input': text
+    }})
 
 
 @app.route('/api/mix/check', methods=['POST'])
+@jwt_required()
 def mix_check():
     """混用禁忌查询：本地规则优先；无规则则基于 PubChem GHS 数据分析"""
     data = request.json
@@ -1093,6 +1649,7 @@ def mix_check():
 
 
 @app.route('/api/chat', methods=['POST'])
+@jwt_required()
 def chat():
     """小安 AI 聊天：优先调用 DeepSeek，失败时回退本地知识库"""
     data = request.json
@@ -1131,6 +1688,7 @@ def chat():
 
 
 @app.route('/api/chat/product', methods=['POST'])
+@jwt_required()
 def chat_about_product():
     """针对已识别化学品进行 AI 问答"""
     data = request.json
@@ -1197,17 +1755,89 @@ def chat_about_product():
     })
 
 
+@app.route('/api/feedback', methods=['POST'])
+@jwt_required()
+def submit_feedback():
+    """记录用户对识别结果的反馈（真实落盘）。
+
+    只做能力范围内的事：如实记录并给出累计条数。不做"自动训练模型"这类做不到的承诺。
+    """
+    data = request.get_json(silent=True) or {}
+    product = (data.get('product') or '').strip()
+    source = (data.get('source') or '').strip()
+    correct = data.get('correct')
+
+    if not product or not isinstance(correct, bool):
+        return jsonify({'success': False, 'message': '缺少反馈内容'}), 400
+
+    records = read_json(FEEDBACK_FILE)
+    if not isinstance(records, list):
+        records = []
+    records.insert(0, {
+        'product': product[:64],
+        'source': source[:32],
+        'correct': correct,
+        'user_id': get_jwt_identity(),
+        'time': str(datetime.now())
+    })
+    del records[1000:]  # 只保留最近 1000 条，避免文件无限增长
+    write_json(FEEDBACK_FILE, records)
+
+    return jsonify({'success': True, 'message': '反馈已记录', 'total': len(records)})
+
+
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    chemicals = get_chemicals_data().get('chemicals', [])
+    """首页统计：全部基于真实数据计算，不返回任何随机或写死的数字"""
+    data = get_chemicals_data()
+    chemicals = data.get('chemicals', [])
+    rumors = data.get('rumors', [])
+    rules = data.get('mixing_rules', [])
+    users = read_json(USERS_FILE)
+    histories = read_json(HISTORIES_FILE)
+    if not isinstance(histories, dict):
+        histories = {}
+    feedback = read_json(FEEDBACK_FILE)
+    if not isinstance(feedback, list):
+        feedback = []
+
+    def count_history(hist_type):
+        total = 0
+        for user_hist in histories.values():
+            if isinstance(user_hist, dict) and isinstance(user_hist.get(hist_type), list):
+                total += len(user_hist[hist_type])
+        return total
+
+    # 别名总数（去重）：知识库规模的一项指标
+    aliases = set()
+    for c in chemicals:
+        for a in (c.get('alias') or '').split():
+            if a.strip():
+                aliases.add(a.strip())
+
     return jsonify({
         'success': True,
         'data': {
-            'image_recognition': random.randint(1200, 1300),
-            'rumor_analysis': random.randint(800, 900),
             'chemical_count': len(chemicals),
-            'accuracy': 87.3
+            'alias_count': len(aliases),
+            'rumor_count': len(rumors),
+            'rule_count': len(rules),
+            'user_count': len(users) if isinstance(users, list) else 0,
+            'recognition_total': count_history('ai'),
+            'rumor_total': count_history('rumor'),
+            'mix_total': count_history('mix'),
+            'feedback_count': len(feedback)
         }
+    })
+
+
+@app.route('/healthz')
+def healthz():
+    """健康检查端点：供 Render 等平台探活使用，不读写任何数据文件。"""
+    return jsonify({
+        'status': 'ok',
+        'vision_enabled': VISION_ENABLED,
+        'ocr_engine': OCR_ENGINE_NAME
     })
 
 
@@ -1224,6 +1854,8 @@ if __name__ == '__main__':
         print(f'📍 访问地址: http://localhost:{port}')
         print(f'📁 数据目录: {DATA_DIR}')
         print(f'🧪 PubChem 数据查询: 已启用（请求间隔 {PUBCHEM_MIN_INTERVAL}s）')
+        print(f'👁️  视觉识别: ' + (f'已启用（{VISION_MODEL}）' if VISION_ENABLED else '未配置（设置 VISION_API_KEY 后启用）'))
+        print(f'🔍 OCR 兜底: ' + (OCR_ENGINE_NAME or '不可用（安装 rapidocr_onnxruntime 后启用）'))
         print(f'🐍 Python版本: {sys.version}')
         print('=' * 50)
         app.run(host='0.0.0.0', port=port, debug=False)

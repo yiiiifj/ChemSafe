@@ -5,6 +5,20 @@ __pycache__/
 .pytest_cache/
 .idea/
 .vscode/
+
+# 运行时产生的数据（含用户信息/缓存，不应提交）
 data/users.json
 data/histories.json
 data/pubchem_cache.json
+data/deepseek_advice_cache.json
+data/reset_tokens.json
+data/feedback.json
+# 数据文件的本地备份（如清理数据前的 histories.json.bak-*）
+data/*.bak*
+data/*.tmp
+
+# WorkBuddy 项目数据目录
+.workbuddy/
+
+# 临时测试输出
+test_vision_output.txt
