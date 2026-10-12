@@ -1629,6 +1629,7 @@ def upload_image():
     source = 'none'
     quality = 0
     ocr_engine = None
+    vision_error = None
     products = []   # 多产品同框时，全部命中结果（含第一个）
 
     # 1. 优先调用视觉模型识别标签内容（需配置 VISION_* 变量；未配置则直接走 OCR）
@@ -1644,6 +1645,7 @@ def upload_image():
                     max_tokens=300
                 )
                 if err:
+                    vision_error = err
                     print(f'Vision API 调用失败: {err}')
                 elif vision_text:
                     seen_groups = set()
@@ -1672,6 +1674,9 @@ def upload_image():
                             _parse_vision_names(vision_text)[0] if _parse_vision_names(vision_text) else '',
                             chemicals)
                         quality = q0['quality']
+                    else:
+                        # 视觉模型返回了内容，但没匹配到任何已知化学品
+                        vision_error = '视觉模型已返回内容，但未匹配到已知化学品；原始返回: ' + str(vision_text)[:120]
         except Exception as e:
             print(f'Vision 识别异常: {e}')
 
@@ -1731,7 +1736,8 @@ def upload_image():
         'recognized': True,
         'confidence': confidence,
         'source': source,
-        'ocr_engine': ocr_engine if source == 'ocr' else None
+        'ocr_engine': ocr_engine if source == 'ocr' else None,
+        'vision_error': vision_error
     }
     # 多产品同框：附上全部命中结果（第一个与顶层字段一致）
     if len(products) > 1:
