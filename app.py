@@ -531,13 +531,58 @@ def resolve_chemical(input_name, use_pubchem=True):
     return None
 
 
-def find_mix_rule(a, b):
-    """查找本地混用规则"""
-    rules = get_chemicals_data().get('mixing_rules', [])
-    for r in rules:
-        if (r['a'] == a and r['b'] == b) or (r['a'] == b and r['b'] == a):
-            return r
+def _equivalence_members(name):
+    """返回与 name 同属一个等价组的全部名称（含自身）。
+
+    等价组解决"同一个东西有多种叫法"的问题：数据里 84消毒液 / 84消毒片 / 漂白水
+    是三个独立条目，如果禁忌规则只挂在其中一个上，用户换个叫法就查不到同一条禁忌——
+    对安全类应用这是危险的（同一件危险的事，给出的答案却变弱了）。
+    组内成员禁忌一致性的依据写在 data/chemicals.json 的 equivalence_groups 里。
+    """
+    data = get_chemicals_data()
+    valid = {c['name'] for c in data.get('chemicals', [])}
+    for g in data.get('equivalence_groups', []):
+        members = [m for m in (g.get('members') or []) if m in valid]
+        if name in members:
+            return members
+    return [name]
+
+
+def _equivalence_group_id(name):
+    """返回该化学品所属等价组的 id；不属于任何组时返回 None。"""
+    for g in get_chemicals_data().get('equivalence_groups', []):
+        if name in (g.get('members') or []):
+            return g.get('id')
     return None
+
+
+def find_mix_rule(a, b, with_origin=False):
+    """查找本地混用规则。
+
+    先查精确组合；未命中时在同一等价组内再查一次，
+    避免用户把"含氯消毒液"说成"漂白水"就查不到同一条禁忌。
+    with_origin=True 时返回 (规则, 实际命中的组合)，供前端说明判定依据。
+    """
+    index = {}
+    for r in get_chemicals_data().get('mixing_rules', []):
+        index.setdefault(tuple(sorted([r['a'], r['b']])), r)
+
+    if not a or not b:
+        return (None, None) if with_origin else None
+
+    hit = index.get(tuple(sorted([a, b])))
+    if hit:
+        return (hit, (a, b)) if with_origin else hit
+
+    for x in _equivalence_members(a):
+        for y in _equivalence_members(b):
+            if x == y:
+                continue
+            hit = index.get(tuple(sorted([x, y])))
+            if hit:
+                return (hit, (x, y)) if with_origin else hit
+
+    return (None, None) if with_origin else None
 
 
 def deepseek_chat(messages, temperature=0.7, max_tokens=800):
@@ -890,21 +935,68 @@ def build_chat_prompt(user_input):
     )
 
 
-def build_local_chat_reply(user_input):
+def _find_mentioned_chemicals(text, chemicals):
+    """从一句话里找出"提到了哪些化学品"，按出现顺序返回。
+
+    为什么不能简单按"别名出现在文本里"收集：同一物质在数据里有多个条目
+    （例如 漂白水 既是独立条目、又是 含氯消毒液 的别名）。直接收集会把同一种东西
+    算成两种，取前两个可能拿到同一物质的两个条目，导致回答错对象。
+    这里做三件事：名称命中优先于别名命中 → 匹配更长的优先 → 按等价组去重。
+    """
+    flat = re.sub(r'\s+', '', (text or '').lower())
+    hits = []
+    for c in chemicals:
+        best = None   # (候选串, 是否名称命中)
+        for cand in _chemical_candidates(c):
+            cand_f = re.sub(r'\s+', '', cand.lower())
+            if not cand_f or cand_f not in flat:
+                continue
+            is_name = (cand_f == c['name'].lower())
+            if (best is None
+                    or (is_name and not best[1])
+                    or (is_name == best[1] and len(cand_f) > len(best[0]))):
+                best = (cand_f, is_name)
+        if best:
+            hits.append((best[0], best[1], c))
+
+    hits.sort(key=lambda h: (not h[1], -len(h[0])))   # 名称命中优先，其次匹配更长
+
+    kept, seen_groups = [], set()
+    for _cand, _is_name, c in hits:
+        gid = _equivalence_group_id(c['name'])
+        if gid:
+            if gid in seen_groups:
+                continue
+            seen_groups.add(gid)
+        kept.append(c)
+    return kept
+
+
+def build_local_chat_reply(user_input, history=None):
     """基于本地知识库和 PubChem 数据回答聊天问题（不调用 DeepSeek）"""
     text = user_input.lower()
     chemicals = get_chemicals_data().get('chemicals', [])
-    rules = get_chemicals_data().get('mixing_rules', [])
 
     # 1. 识别输入中提到的化学品
-    found = []
-    for c in chemicals:
-        names = [c['name']] + c.get('alias', '').split()
-        for n in names:
-            n = n.lower().strip()
-            if n and n in text:
-                found.append(c)
-                break
+    # 注意：不能简单按"别名出现在文本里"收集——同一物质有多个条目（漂白水既是独立条目
+    # 又是含氯消毒液的别名），那样会把一种东西算成两种，回答错对象。这里统一走去重逻辑。
+    found = _find_mentioned_chemicals(user_input, chemicals)
+
+    # 1b. 补上上一轮提到的化学品。
+    #     用户常说"那它能和洁厕灵一起用吗"——当前句只出现了第二个对象（洁厕灵），
+    #     第一个对象（"它"）在上文里。所以是"合并"而不是"当前句为空时才回看"。
+    if history and len(found) < 2:
+        for m in reversed(history):
+            if m.get('role') != 'user':
+                continue
+            prev = _find_mentioned_chemicals(m.get('content') or '', chemicals)
+            if not prev:
+                continue
+            existing = {c['name'] for c in found}
+            for c in prev:
+                if c['name'] not in existing:
+                    found.append(c)
+            break
 
     # 2. 常见混用/安全问题关键词回复
     if '混用' in text or '一起' in text or '混合' in text or '能不能' in text:
@@ -1732,11 +1824,14 @@ def mix_check():
         'error': None
     }
 
-    # 本地规则命中直接返回
+    # 本地规则命中直接返回（支持等价组：换个产品名也能命中同一条禁忌）
     if a and b:
-        rule = find_mix_rule(a, b)
+        rule, origin = find_mix_rule(a, b, with_origin=True)
         if rule:
             result['rule'] = rule
+            if origin and tuple(sorted(origin)) != tuple(sorted([a, b])):
+                result['rule']['matched_pair'] = list(origin)
+                result['rule']['via_equivalence'] = True
             return jsonify({'success': True, 'data': result})
 
     # 尝试 PubChem 查询未识别或本地无规则的化学品
@@ -1788,13 +1883,27 @@ def mix_check():
 @app.route('/api/chat', methods=['POST'])
 @jwt_required()
 def chat():
-    """小安 AI 聊天：优先调用 DeepSeek，失败时回退本地知识库"""
-    data = request.json
-    user_input = data.get('message', '').strip()
+    """小安 AI 聊天：优先调用 DeepSeek，失败时回退本地知识库。
+
+    支持多轮上下文：前端把最近几轮对话一起送来。没有上下文时，
+    "那它能和别的混用吗"这类指代根本无法解析。
+    """
+    data = request.get_json(silent=True) or {}
+    user_input = (data.get('message') or '').strip()
     if not user_input:
         return jsonify({'success': False, 'message': '请输入问题'}), 400
 
-    # 优先使用 DeepSeek API
+    # 上下文：只取最近 6 条，单条截断，避免超长和滥用
+    history = []
+    for m in (data.get('history') or [])[-6:]:
+        if not isinstance(m, dict):
+            continue
+        role = m.get('role')
+        text = str(m.get('text') or '').strip()
+        if role in ('user', 'bot') and text:
+            history.append({'role': 'user' if role == 'user' else 'assistant',
+                            'content': text[:1000]})
+
     if DEEPSEEK_API_KEY:
         messages = [
             {
@@ -1806,9 +1915,10 @@ def chat():
                     '回答要简洁、准确、有安全意识，不确定时明确说明。'
                     '不要回答与化学品安全无关的问题。'
                 )
-            },
-            {'role': 'user', 'content': user_input}
+            }
         ]
+        messages.extend(history)
+        messages.append({'role': 'user', 'content': user_input})
         reply, err = deepseek_chat(messages, temperature=0.6, max_tokens=800)
         if reply:
             return jsonify({
@@ -1817,7 +1927,7 @@ def chat():
             })
         print(f'DeepSeek 调用失败，回退本地: {err}')
 
-    reply, source = build_local_chat_reply(user_input)
+    reply, source = build_local_chat_reply(user_input, history=history)
     return jsonify({
         'success': True,
         'data': {'reply': reply, 'source': source}

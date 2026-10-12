@@ -1009,18 +1009,52 @@
     const icon = type === 'ai' ? 'fa-flask' : type === 'rumor' ? 'fa-comment' : type === 'mix' ? 'fa-vial' : 'fa-book';
     container.innerHTML = list.map((item, index) =>
       `<div class="history-item" style="justify-content:space-between; align-items:center;">
-        <div style="display:flex; align-items:center; gap:8px; overflow:hidden;">
+        <div class="history-replay" data-type="${type}" data-content="${escapeHtml(item.content)}" title="点击重新查询"
+             style="display:flex; align-items:center; gap:8px; overflow:hidden; cursor:pointer; flex:1;">
           <i class="fas ${icon}" style="color:var(--primary); flex-shrink:0;"></i>
           <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(item.content)}</span>
+          <i class="fas fa-redo" style="color:var(--text-light); font-size:0.7rem; flex-shrink:0;"></i>
         </div>
         <div style="display:flex; align-items:center; gap:10px; flex-shrink:0;">
           <span style="color:var(--text-light); font-size:0.78rem;">${item.time}</span>
-          <button class="delete-history-item" onclick="deleteHistoryItem('${type}', ${index})" title="删除" style="background:none; border:none; color:var(--red); cursor:pointer; font-size:0.85rem; padding:2px 6px; border-radius:4px;">
+          <button class="delete-history-item" data-del-type="${type}" data-del-index="${index}" title="删除" style="background:none; border:none; color:var(--red); cursor:pointer; font-size:0.85rem; padding:2px 6px; border-radius:4px;">
             <i class="fas fa-trash-alt"></i>
           </button>
         </div>
       </div>`
     ).join('');
+    container.querySelectorAll('.history-replay').forEach(el => {
+      el.addEventListener('click', () => replayHistory(el.dataset.type, el.dataset.content));
+    });
+    container.querySelectorAll('.delete-history-item').forEach(el => {
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        deleteHistoryItem(el.dataset.delType, Number(el.dataset.delIndex));
+      });
+    });
+  }
+
+  // 点击历史记录 → 回到对应页面并重新发起同一次查询
+  function replayHistory(type, content) {
+    if (!content) return;
+    if (type === 'ai') {
+      navTo('ai');
+      document.getElementById('ai-text-input').value = content;
+      recognizeByName(content);
+    } else if (type === 'mix') {
+      navTo('mix');
+      const parts = content.split('+').map(s => s.trim());
+      document.getElementById('mix-input-a').value = parts[0] || '';
+      document.getElementById('mix-input-b').value = parts[1] || '';
+      if (parts[0] && parts[1]) checkMixing();
+    } else if (type === 'rumor') {
+      navTo('rumor');
+      document.getElementById('rumor-input').value = content;
+      analyzeRumor();
+    } else {
+      navTo('safety');
+      searchKeyword(content);
+    }
   }
 
   function escapeHtml(text) {
@@ -1774,12 +1808,16 @@
       const icons = { critical: 'fa-skull-crossbones', warning: 'fa-exclamation-triangle', info: 'fa-info-circle', safe: 'fa-check-circle' };
       const colors = { critical: 'var(--red)', warning: 'var(--amber)', info: 'var(--primary)', safe: 'var(--green)' };
       result.className = 'mix-result ' + rule.level;
+      const originNote = (rule.via_equivalence && rule.matched_pair)
+        ? `<div class="evidence-box" style="margin-top:8px; display:block;"><i class="fas fa-link"></i> 本组合未单独收录，依据同类产品「${escapeHtml(rule.matched_pair[0])} + ${escapeHtml(rule.matched_pair[1])}」的禁忌判定</div>`
+        : '';
       result.innerHTML = `
         <div style="font-size:1.15rem; font-weight:800; color:${colors[rule.level]};">
           <i class="fas ${icons[rule.level]}"></i> ${escapeHtml(a)} + ${escapeHtml(b)} = ${escapeHtml(rule.danger)}
         </div>
         <p style="margin:0.5rem 0; color:var(--text);"><strong>反应结果：</strong>${escapeHtml(rule.result)}</p>
         <p style="margin:0.3rem 0; color:var(--text-dim); line-height:1.7;"><strong>详细说明：</strong>${escapeHtml(rule.explain)}</p>
+        ${originNote}
         <div style="font-size:0.8rem; color:var(--text-light); margin-top:0.4rem;"><i class="fas fa-database"></i> 来源：本地安全数据库</div>`;
     } else if (data.pubchem_rule) {
       const rule = data.pubchem_rule;
@@ -2069,6 +2107,11 @@
     chatInput.value = '';
     addMessage('user', text);
 
+    // 带上最近几轮对话作为上下文，否则"那它能混用吗"这类指代无法解析。
+    // getChatHistory 里最后一条就是刚 push 进去的当前消息，因此先去掉它。
+    const chatContext = getChatHistory().slice(0, -1).slice(-6)
+      .map(m => ({ role: m.role, text: m.text }));
+
     chatSend.disabled = true;
     const thinking = document.createElement('div');
     thinking.className = 'chat-msg bot';
@@ -2077,7 +2120,10 @@
     chatBody.appendChild(thinking);
     scrollChatToBottom();
 
-    const res = await apiFetch('/chat', { method: 'POST', body: { message: text } });
+    const res = await apiFetch('/chat', {
+      method: 'POST',
+      body: { message: text, history: chatContext }
+    });
     thinking.remove();
     chatSend.disabled = false;
 
