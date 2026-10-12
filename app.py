@@ -1392,35 +1392,70 @@ def _get_rapidocr_engine():
     return _rapidocr_engine
 
 
+# OCR 前的图片最长边上限。手机照片常有 3000~4000px，直接送入 OCR 会让内存和耗时
+# 随像素数急剧上升（在 512MB 的免费实例上可能直接把进程打挂，表现为 502）。
+OCR_MAX_SIDE = int(os.getenv('OCR_MAX_SIDE', '1280'))
+
+
+def _prepare_image_for_ocr(image_path):
+    """把待识别图片缩到 OCR_MAX_SIDE 以内，返回 (可用路径, 是否临时文件)。
+
+    不缩放的风险：一张 2000x2000 的照片解码后就是 12MB，OCR 的检测阶段还会再放大，
+    叠加 onnxruntime 的中间张量后内存会出现尖峰。缩到 1280 后像素数只有约 1/2.4。
+    """
+    try:
+        img = Image.open(image_path)
+        if max(img.size) <= OCR_MAX_SIDE:
+            return image_path, False
+        if img.mode not in ('RGB', 'L'):
+            img = img.convert('RGB')
+        img.thumbnail((OCR_MAX_SIDE, OCR_MAX_SIDE), Image.Resampling.LANCZOS)
+        fd, tmp_path = tempfile.mkstemp(suffix='.jpg')
+        os.close(fd)
+        img.save(tmp_path, format='JPEG', quality=88)
+        return tmp_path, True
+    except Exception as e:
+        print(f'OCR 图片预处理失败，改用原图: {e}')
+        return image_path, False
+
+
 def ocr_extract_text(image_path):
     """用可用的 OCR 引擎提取图片文字，返回 (text, engine_name)。
 
     优先 RapidOCR（免系统依赖、中文识别效果好），失败时回退 pytesseract。
     都不可用或都识别为空时返回 ('', None)。
     """
-    if RAPIDOCR_AVAILABLE:
-        try:
-            engine = _get_rapidocr_engine()
-            result, _elapse = engine(image_path)
-            if result:
-                lines = [item[1] for item in result if len(item) > 1 and item[1]]
-                text = '\n'.join(lines)
+    prepared, is_tmp = _prepare_image_for_ocr(image_path)
+    try:
+        if RAPIDOCR_AVAILABLE:
+            try:
+                engine = _get_rapidocr_engine()
+                result, _elapse = engine(prepared)
+                if result:
+                    lines = [item[1] for item in result if len(item) > 1 and item[1]]
+                    text = '\n'.join(lines)
+                    if text.strip():
+                        return text, 'rapidocr'
+            except Exception as e:
+                print(f'RapidOCR 识别失败，尝试回退: {e}')
+
+        if PYTESSERACT_AVAILABLE:
+            try:
+                image = Image.open(prepared)
+                image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+                text = pytesseract.image_to_string(image, lang='chi_sim+eng')
                 if text.strip():
-                    return text, 'rapidocr'
-        except Exception as e:
-            print(f'RapidOCR 识别失败，尝试回退: {e}')
+                    return text, 'pytesseract'
+            except Exception as e:
+                print(f'Tesseract 识别失败: {e}')
 
-    if PYTESSERACT_AVAILABLE:
-        try:
-            image = Image.open(image_path)
-            image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
-            text = pytesseract.image_to_string(image, lang='chi_sim+eng')
-            if text.strip():
-                return text, 'pytesseract'
-        except Exception as e:
-            print(f'Tesseract 识别失败: {e}')
-
-    return '', None
+        return '', None
+    finally:
+        if is_tmp and os.path.exists(prepared):
+            try:
+                os.unlink(prepared)
+            except Exception:
+                pass
 
 
 def _resize_to_base64(file_storage, max_size=(1024, 1024), quality=85):
