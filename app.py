@@ -50,7 +50,7 @@ load_dotenv()
 app = Flask(__name__, static_folder='.', static_url_path='')
 
 # 配置
-_jwt_secret = os.getenv('JWT_SECRET_KEY')
+_jwt_secret = (os.getenv('JWT_SECRET_KEY') or '').strip()
 if not _jwt_secret:
     _jwt_secret = secrets.token_urlsafe(48)
     print('[warn] 未设置 JWT_SECRET_KEY，已生成临时随机密钥：进程重启后所有登录态失效。'
@@ -64,9 +64,11 @@ if hasattr(app, 'json'):
     app.json.ensure_ascii = False
 
 # DeepSeek 配置（文本模型）
-DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
-DEEPSEEK_API_URL = os.getenv('DEEPSEEK_API_URL', 'https://api.deepseek.com/chat/completions')
-DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
+# 注意 strip()：从 Render 面板粘贴的密钥常会带上末尾换行/空格，不 strip 会导致
+# 请求头里出现非法字符（实测报 "Invalid ... in header value ... '\n'"）。
+DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '').strip()
+DEEPSEEK_API_URL = os.getenv('DEEPSEEK_API_URL', 'https://api.deepseek.com/chat/completions').strip()
+DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat').strip()
 
 # 视觉模型配置（图片识别专用）
 # 注意：deepseek-chat 是文本模型，不支持图片输入，不能用作视觉识别。
@@ -74,9 +76,9 @@ DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
 #   通义千问  VISION_API_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions  VISION_MODEL=qwen-vl-max
 #   智谱      VISION_API_URL=https://open.bigmodel.cn/api/paas/v4/chat/completions             VISION_MODEL=glm-4v
 #   豆包/OpenAI 同理。未配置时图片识别自动降级为 OCR + 文件名匹配。
-VISION_API_URL = os.getenv('VISION_API_URL', '')
-VISION_API_KEY = os.getenv('VISION_API_KEY', '')
-VISION_MODEL = os.getenv('VISION_MODEL', '')
+VISION_API_URL = os.getenv('VISION_API_URL', '').strip()
+VISION_API_KEY = os.getenv('VISION_API_KEY', '').strip()
+VISION_MODEL = os.getenv('VISION_MODEL', '').strip()
 VISION_ENABLED = bool(VISION_API_URL and VISION_API_KEY and VISION_MODEL)
 
 # 邮件/SMTP 配置（用于邮箱找回密码）
@@ -1510,7 +1512,8 @@ _warm_up_ocr_async()
 
 # OCR 前的图片最长边上限。手机照片常有 3000~4000px，直接送入 OCR 会让内存和耗时
 # 随像素数急剧上升（在 512MB 的免费实例上可能直接把进程打挂，表现为 502）。
-OCR_MAX_SIDE = int(os.getenv('OCR_MAX_SIDE', '1280'))
+# 1024 实测峰值约 290MB、仍能识别产品标签；识别小字不清时可上调到 1280/1600。
+OCR_MAX_SIDE = int(os.getenv('OCR_MAX_SIDE', '1024'))
 
 
 def _prepare_image_for_ocr(image_path):
